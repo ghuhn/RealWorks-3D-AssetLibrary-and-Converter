@@ -176,7 +176,7 @@ fn get_assets(state: State<AppState>) -> Result<Vec<Asset>, String> {
 }
 
 #[tauri::command]
-async fn convert_asset(path: String, is_batch: bool, state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
+async fn convert_asset(path: String, is_batch: bool, state: State<'_, AppState>, _app: AppHandle) -> Result<(), String> {
     let settings = state.settings.lock().unwrap().clone();
     
     if settings.blender_path.is_empty() || settings.library_path.is_empty() {
@@ -277,6 +277,32 @@ async fn convert_asset(path: String, is_batch: bool, state: State<'_, AppState>,
     Ok(())
 }
 
+#[tauri::command]
+fn delete_asset(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let conn = state.db.lock().unwrap();
+    
+    let (name, category): (String, String) = conn.query_row(
+        "SELECT name, category FROM assets WHERE id = ?1",
+        params![id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(|e| format!("Asset not found: {}", e))?;
+
+    let settings = state.settings.lock().unwrap();
+    let lib_path = Path::new(&settings.library_path);
+    let asset_dir = lib_path.join(&category).join(&name);
+
+    if asset_dir.exists() {
+        if let Err(e) = trash::delete(&asset_dir) {
+            return Err(format!("Failed to move asset to recycle bin: {}", e));
+        }
+    }
+
+    conn.execute("DELETE FROM assets WHERE id = ?1", params![id])
+        .map_err(|e| format!("Failed to delete from database: {}", e))?;
+
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
@@ -300,7 +326,8 @@ fn main() {
             get_settings,
             save_settings,
             get_assets,
-            convert_asset
+            convert_asset,
+            delete_asset
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
