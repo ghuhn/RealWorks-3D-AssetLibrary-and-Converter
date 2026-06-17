@@ -422,12 +422,12 @@ export function Library() {
         {selectedAsset && (
           <motion.div
             initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 320, opacity: 1 }}
+            animate={{ width: 400, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
             transition={{ type: "tween", duration: 0.3, ease: "easeInOut" }}
             className="border-l border-[#333] bg-[#1a1a1a] flex flex-col shrink-0 overflow-hidden min-h-0"
           >
-            <div className="w-[320px] h-full flex flex-col min-h-0">
+            <div className="w-[400px] h-full flex flex-col min-h-0">
               <div className="h-14 border-b border-[#333] flex items-center justify-between px-4 shrink-0">
                 <span className="font-semibold text-sm flex items-center gap-2">
                   Asset details
@@ -456,7 +456,7 @@ export function Library() {
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-6 outline-none" tabIndex={0}>
-                <div className="aspect-video bg-[#111] rounded-lg border border-[#333] overflow-hidden relative group">
+                <div className="aspect-square bg-[#111] rounded-lg border border-[#333] overflow-hidden relative group">
                   <ThumbnailImage src={selectedAsset.thumbnail} alt={selectedAsset.name} className="w-full h-full object-cover" />
                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                     <button
@@ -496,22 +496,6 @@ export function Library() {
                       <span className="text-neutral-200">{new Date(selectedAsset.dateAdded).toLocaleDateString()}</span>
                     </div>
                   </div>
-                </div>
-
-                <div>
-                  <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-                    <TagIcon className="w-3 h-3" /> Tags
-                  </h3>
-                  <AssetTagsManager
-                    asset={selectedAsset}
-                    managerId={`details-${selectedAsset.id}`}
-                    openTagManagerId={openTagManagerId}
-                    setOpenTagManagerId={setOpenTagManagerId}
-                    newTagInput={newTagInput}
-                    setNewTagInput={setNewTagInput}
-                    popoverRef={popoverRef}
-                    maxWidth={250}
-                  />
                 </div>
 
                 <div>
@@ -570,6 +554,22 @@ export function Library() {
                       </div>
                     </details>
                   </div>
+                </div>
+
+                <div>
+                  <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    <TagIcon className="w-3 h-3" /> Tags
+                  </h3>
+                  <AssetTagsManager
+                    asset={selectedAsset}
+                    managerId={`details-${selectedAsset.id}`}
+                    openTagManagerId={openTagManagerId}
+                    setOpenTagManagerId={setOpenTagManagerId}
+                    newTagInput={newTagInput}
+                    setNewTagInput={setNewTagInput}
+                    popoverRef={popoverRef}
+                    maxWidth={250}
+                  />
                 </div>
 
                 <div>

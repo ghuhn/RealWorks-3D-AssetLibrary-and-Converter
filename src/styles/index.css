@@ -37,7 +37,7 @@
   display: grid !important;
   grid-template-columns: auto 1fr;
   grid-template-rows: auto auto;
-  padding: 0 !important;
+  padding: 0 0 12px 0 !important;
   gap: 0 !important;
   background: #222 !important;
   border: 1px solid #333 !important;
@@ -90,4 +90,30 @@
 [data-sonner-toast] [data-close-button]:hover {
   color: #fff !important;
   background: #444 !important;
+}
+
+[data-sonner-toast] [data-button] {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  margin: 0 !important;
+  padding: 10px !important;
+  background: #2a2a2a !important;
+  color: #e0e0e0 !important;
+  border: none !important;
+  border-top: 1px solid #333 !important;
+  border-radius: 0 !important;
+  width: 25% !important;
+  justify-self: center !important;
+  text-align: center !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+[data-sonner-toast] [data-button]:hover {
+  background: #333 !important;
 }

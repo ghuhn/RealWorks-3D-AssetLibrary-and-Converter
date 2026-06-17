@@ -43,6 +43,8 @@ interface AppContextType {
   setSelectedCategory: (c: string) => void;
   selectedTags: string[];
   setSelectedTags: (t: string[]) => void;
+  selectedLog: LogEntry | null;
+  setSelectedLog: (log: LogEntry | null) => void;
   availableTags: string[];
   addAvailableTag: (t: string) => void;
   updateAssetTags: (id: string, tags: string[]) => void;
@@ -62,6 +64,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All assets");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
   const [availableTags, setAvailableTags] = useState<string[]>(["interior", "exterior", "modern", "vintage", "organic", "hard-surface", "rigged"]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -71,13 +74,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const processing = assets.filter(a => a.status === "Processing");
 
   const addLog = (assetName: string, severity: "Info" | "Warning" | "Error", message: string) => {
-    setLogs(prev => [{
+    const entry: LogEntry = {
       id: "log-" + Date.now() + Math.random(),
       timestamp: new Date().toLocaleTimeString([], { hour12: false }),
       asset: assetName,
       severity,
       message
-    }, ...prev]);
+    };
+    setLogs(prev => [entry, ...prev]);
+    return entry;
   };
 
   const loadAssets = async () => {
@@ -104,7 +109,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
     } catch (e) {
       console.error('Failed to load assets', e);
-      addLog("System", "Error", `Failed to load assets: ${e}`);
+      const log = addLog("System", "Error", `Failed to load assets: ${e}`);
+      toast.error("Load Failed", { 
+        description: "Failed to load assets",
+        action: { label: "View issue", onClick: () => setSelectedLog(log) }
+      });
     }
   };
 
@@ -166,10 +175,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       updateAssetStatus(newAsset.id, "Completed", 100);
       loadAssets(); // Reload library from DB
     } catch (e) {
+      const errorMsg = typeof e === "string" ? e : (e as Error).message || String(e);
       console.error('Conversion failed', e);
-      addLog(assetName, "Error", `Conversion failed: ${e}`);
-      toast.error("Conversion Failed", { description: `Failed to convert ${assetName}` });
-      updateAssetStatus(newAsset.id, "Failed", newAsset.progress);
+      const log = addLog(assetName, "Error", `Conversion failed: ${errorMsg}`);
+      toast.error("Conversion Failed", { 
+        description: `Failed to convert ${assetName}`,
+        action: { label: "View issue", onClick: () => setSelectedLog(log) }
+      });
+      setAssets(prev => prev.map(a => a.id === newAsset.id ? { ...a, status: "Failed", warnings: [errorMsg] } : a));
     }
   };
 
@@ -188,7 +201,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (e) {
       console.error(e);
-      toast.error("Dialog Error", { description: "Failed to open file dialog" });
+      const log = addLog("System", "Error", `Failed to open file dialog: ${e}`);
+      toast.error("Dialog Error", { 
+        description: "Failed to open file dialog",
+        action: { label: "View issue", onClick: () => setSelectedLog(log) }
+      });
     }
   };
 
@@ -201,7 +218,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (e) {
       console.error(e);
-      toast.error("Dialog Error", { description: "Failed to open folder dialog" });
+      const log = addLog("System", "Error", `Failed to open folder dialog: ${e}`);
+      toast.error("Dialog Error", { 
+        description: "Failed to open folder dialog",
+        action: { label: "View issue", onClick: () => setSelectedLog(log) }
+      });
     }
   };
 
@@ -215,7 +236,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setAssets(prev => prev.map(a => a.id === id ? { ...a, tags, lastModified: new Date().toISOString() } : a));
     } catch (e) {
       console.error(e);
-      toast.error("Update Failed", { description: `Failed to update tags: ${e}` });
+      const log = addLog("System", "Error", `Failed to update tags for ${id}: ${e}`);
+      toast.error("Update Failed", { 
+        description: `Failed to update tags: ${e}`,
+        action: { label: "View issue", onClick: () => setSelectedLog(log) }
+      });
     }
   };
 
@@ -232,7 +257,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast.success("Asset Deleted", { description: "Asset deleted successfully" });
     } catch (e) {
       console.error(e);
-      toast.error("Delete Failed", { description: `Failed to delete asset: ${e}` });
+      const log = addLog("System", "Error", `Failed to delete asset ${id}: ${e}`);
+      toast.error("Delete Failed", { 
+        description: `Failed to delete asset: ${e}`,
+        action: { label: "View issue", onClick: () => setSelectedLog(log) }
+      });
     }
   };
 
@@ -267,6 +296,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     <AppContext.Provider value={{
       assets, logs, queue, processing, searchQuery, setSearchQuery,
       selectedCategory, setSelectedCategory, selectedTags, setSelectedTags,
+      selectedLog, setSelectedLog,
       availableTags, addAvailableTag, updateAssetTags,
       importAsset, importFolder, retryAsset, retryAllFailed,
       cancelAsset, clearCompleted, updateAssetStatus, deleteAsset

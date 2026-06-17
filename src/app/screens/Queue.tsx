@@ -38,18 +38,17 @@ export function Queue() {
           <table className="w-full text-left text-sm whitespace-nowrap">
             <thead className="bg-[#222] border-b border-[#333]">
               <tr>
-                <th className="px-4 py-3 font-medium text-neutral-400 w-32">Asset Name</th>
-                <th className="px-4 py-3 font-medium text-neutral-400 w-32">Status</th>
-                <th className="px-4 py-3 font-medium text-neutral-400 w-64">Progress</th>
-                <th className="px-4 py-3 font-medium text-neutral-400 w-24">Time</th>
-                <th className="px-4 py-3 font-medium text-neutral-400">Warnings</th>
+                <th className="px-4 py-3 font-medium text-neutral-400 w-64">Asset Name</th>
+                <th className="px-4 py-3 font-medium text-neutral-400 w-64">Status</th>
+                <th className="px-4 py-3 font-medium text-neutral-400 w-24">Time taken</th>
+
                 <th className="px-4 py-3 font-medium text-neutral-400 w-24 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#2a2a2a]">
               {queuedAssets.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-neutral-500">
+                  <td colSpan={4} className="px-4 py-8 text-center text-neutral-500">
                     No assets in queue
                   </td>
                 </tr>
@@ -58,43 +57,31 @@ export function Queue() {
                   <tr key={asset.id} className="hover:bg-[#222]/50 transition-colors">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <img src={asset.thumbnail} alt="" className="w-8 h-8 rounded object-cover bg-[#111]" />
                         <span className="font-medium text-neutral-200 truncate max-w-[200px]" title={asset.name}>{asset.name}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <StatusBadge status={asset.status} />
-                    </td>
-                    <td className="px-4 py-3">
-                      {asset.status === "Processing" ? (
-                        <div className="flex items-center gap-3">
-                          <div className="flex-1 h-1.5 bg-[#111] rounded-full overflow-hidden border border-[#333]">
-                            <div 
-                              className="h-full bg-blue-500 transition-all duration-300 ease-out" 
-                              style={{ width: `${asset.progress}%` }}
-                            />
-                          </div>
-                          <span className="font-mono text-xs w-8">{Math.round(asset.progress || 0)}%</span>
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-start">
+                          <StatusBadge status={asset.status} />
                         </div>
-                      ) : asset.status === "Completed" ? (
-                        <span className="text-emerald-500 font-medium">Completed</span>
-                      ) : (
-                        <span className="text-neutral-500">-</span>
-                      )}
+                        {asset.status === "Processing" && (
+                          <div className="flex items-center gap-3 w-56">
+                            <div className="flex-1 h-1.5 bg-[#111] rounded-full overflow-hidden border border-[#333]">
+                              <div 
+                                className="h-full bg-blue-500 transition-all duration-300 ease-out" 
+                                style={{ width: `${asset.progress}%` }}
+                              />
+                            </div>
+                            <span className="font-mono text-xs w-8">{Math.round(asset.progress || 0)}%</span>
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 font-mono text-neutral-400">
                       {asset.status === "Processing" || asset.status === "Completed" ? (asset.time || "-") : "-"}
                     </td>
-                    <td className="px-4 py-3">
-                      {asset.warnings?.length ? (
-                        <div className="flex items-center gap-2 text-amber-500/80 text-xs">
-                          <AlertTriangle className="w-3.5 h-3.5" />
-                          <span className="truncate max-w-[200px]" title={asset.warnings[0]}>{asset.warnings[0]}</span>
-                        </div>
-                      ) : (
-                        <span className="text-neutral-600">-</span>
-                      )}
-                    </td>
+
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
                         {(asset.status === "Failed" || asset.status === "Cancelled") && (

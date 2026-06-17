@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "usd-asset-converter",
+  "productName": "RW Asset Browser",
   "version": "0.1.0",
   "identifier": "com.priya.usd-asset-converter",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "usd-asset-converter",
+        "title": "RW Asset Browser",
         "width": 800,
         "height": 600
       }

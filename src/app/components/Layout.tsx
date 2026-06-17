@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { FolderPlus, FilePlus, Search, Box, ListVideo, Terminal, Settings as SettingsIcon, ChevronRight, ChevronDown, CheckCircle2, XCircle, Loader2, AlertCircle, Plus, Menu } from "lucide-react";
+import { FolderPlus, FilePlus, Search, Box, ListVideo, Terminal, Settings as SettingsIcon, ChevronRight, ChevronDown, CheckCircle2, XCircle, Loader2, AlertCircle, Plus, Menu, Info, AlertTriangle, X } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { motion, AnimatePresence } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
@@ -11,7 +11,7 @@ function cn(...inputs: ClassValue[]) {
 }
 
 export function Layout() {
-  const { queue, processing } = useAppContext();
+  const { queue, processing, selectedLog, setSelectedLog } = useAppContext();
   const showQueuePanel = queue.length > 0 || processing.length > 0;
   const [isQueueExpanded, setIsQueueExpanded] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
@@ -103,6 +103,61 @@ export function Layout() {
               </motion.div>
             )}
           </AnimatePresence>
+
+          <AnimatePresence>
+            {selectedLog && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+                onClick={() => setSelectedLog(null)}
+              >
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0, y: 10 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.95, opacity: 0, y: 10 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                  className="bg-[#1a1a1a] border border-[#333] rounded-lg shadow-2xl w-full max-w-2xl flex flex-col max-h-[80vh] overflow-hidden pointer-events-auto"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="h-14 border-b border-[#333] flex items-center justify-between px-6 shrink-0 bg-[#222]">
+                    <h2 className="text-sm font-semibold text-neutral-200 flex items-center gap-2">
+                      {selectedLog.severity === "Info" && <Info className="w-4 h-4 text-blue-400" />}
+                      {selectedLog.severity === "Warning" && <AlertTriangle className="w-4 h-4 text-amber-400" />}
+                      {selectedLog.severity === "Error" && <XCircle className="w-4 h-4 text-red-400" />}
+                      Log Details
+                    </h2>
+                    <button
+                      onClick={() => setSelectedLog(null)}
+                      className="text-neutral-500 hover:text-white transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                    <div className="grid grid-cols-2 gap-6">
+                      <div>
+                        <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">Timestamp</h3>
+                        <div className="text-sm text-neutral-300 font-mono bg-[#111] border border-[#333] px-3 py-2 rounded">{selectedLog.timestamp}</div>
+                      </div>
+                      <div>
+                        <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">Asset</h3>
+                        <div className="text-sm text-neutral-300 font-mono bg-[#111] border border-[#333] px-3 py-2 rounded truncate">{selectedLog.asset}</div>
+                      </div>
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">Message</h3>
+                      <div className="text-sm text-neutral-300 font-mono bg-[#111] border border-[#333] p-4 rounded whitespace-pre-wrap leading-relaxed">
+                        {selectedLog.message}
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </main>
       </div>
     </div>
@@ -151,7 +206,7 @@ export const getAllNamesForCategory = (name: string, list: CategoryNode[] = cate
 
 function Sidebar() {
   const location = useLocation();
-  const { assets, importAsset, selectedCategory, setSelectedCategory, selectedTags, setSelectedTags, availableTags, addAvailableTag } = useAppContext();
+  const { assets, importAsset, importFolder, selectedCategory, setSelectedCategory, selectedTags, setSelectedTags, availableTags, addAvailableTag } = useAppContext();
   
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [newTag, setNewTag] = useState("");
@@ -185,14 +240,14 @@ function Sidebar() {
         <button 
           onClick={() => setSelectedCategory(cat.name)}
           className={cn(
-            "w-full text-left px-2 py-1.5 text-sm rounded flex items-center justify-between group transition-colors",
+            "w-full text-left px-2 py-1.5 text-xs rounded flex items-center justify-between group transition-colors",
             selectedCategory === cat.name 
-              ? "bg-[#0066cc]/20 text-blue-400 font-medium"
-              : "text-neutral-400 hover:text-neutral-200 hover:bg-[#222]"
+              ? "bg-[#222] text-white font-semibold"
+              : "text-neutral-400 hover:text-neutral-200 hover:bg-[#222] font-normal"
           )}
         >
           <span>{cat.name}</span>
-          <span className={cn("text-xs", selectedCategory === cat.name ? "text-blue-400/80" : "text-neutral-500")}>{count}</span>
+          <span className={cn("text-xs", selectedCategory === cat.name ? "text-neutral-400" : "text-neutral-500")}>{count}</span>
         </button>
       </li>
     );
@@ -200,7 +255,7 @@ function Sidebar() {
 
   return (
     <motion.aside 
-      animate={{ width: isCollapsed ? 64 : 256 }}
+      animate={{ width: isCollapsed ? 64 : 196 }}
       transition={{ type: "tween", duration: 0.3, ease: "easeInOut" }}
       className="flex flex-col bg-[#141414] overflow-y-auto shrink-0 overflow-x-hidden"
     >
@@ -215,11 +270,10 @@ function Sidebar() {
         {!isCollapsed && (
           <div className="flex items-center gap-2">
             <img src="/logo.png?v=3" alt="RealWorks Logo" className="w-5 h-5 object-contain" />
-            <span className="text-neutral-200 font-semibold tracking-wide">Asset Browser</span>
           </div>
         )}
       </div>
-      <div className={cn("pb-2 pt-2", isCollapsed ? "px-2" : "px-3")}>
+      <div className={cn("pb-2 pt-2 space-y-2", isCollapsed ? "px-2" : "px-3")}>
         <button 
           onClick={() => importAsset({})}
           className={cn(
@@ -231,6 +285,17 @@ function Sidebar() {
           <FilePlus className="w-4 h-4 text-neutral-400" />
           {!isCollapsed && <span>Import Asset</span>}
         </button>
+        <button 
+          onClick={() => importFolder()}
+          className={cn(
+            "flex items-center justify-center gap-2 py-2 text-sm bg-[#2a2a2a] hover:bg-[#333] border border-[#3d3d3d] text-neutral-200 rounded transition-colors font-medium",
+            isCollapsed ? "w-full px-0" : "w-full px-3"
+          )}
+          title="Import Folder"
+        >
+          <FolderPlus className="w-4 h-4 text-neutral-400" />
+          {!isCollapsed && <span>Import Folder</span>}
+        </button>
       </div>
       <nav className={cn("pt-1 space-y-1 border-b border-[#2a2a2a]", isCollapsed ? "p-2" : "p-3")}>
         {navItems.map(item => {
@@ -240,7 +305,7 @@ function Sidebar() {
               key={item.path} 
               to={item.path}
               className={cn(
-                "flex items-center rounded text-sm transition-colors",
+                "flex items-center rounded text-sm transition-colors font-semibold",
                 isCollapsed ? "justify-center py-2" : "gap-3 px-3 py-2",
                 isActive 
                   ? "bg-[#0066cc] text-white" 
@@ -271,14 +336,14 @@ function Sidebar() {
                   <button 
                     onClick={() => setSelectedCategory("All assets")}
                     className={cn(
-                      "w-full text-left px-2 py-1.5 text-sm rounded flex items-center justify-between transition-colors font-medium",
+                      "w-full text-left px-2 py-1.5 text-xs rounded flex items-center justify-between group transition-colors",
                       selectedCategory === "All assets"
-                        ? "bg-[#0066cc]/20 text-blue-400"
-                        : "text-neutral-300 hover:text-white hover:bg-[#222]"
+                        ? "bg-[#222] text-white font-semibold"
+                        : "text-neutral-400 hover:text-neutral-200 hover:bg-[#222] font-normal"
                     )}
                   >
                     <span>All assets</span>
-                    <span className={cn("text-xs", selectedCategory === "All assets" ? "text-blue-400/80" : "text-neutral-500")}>{totalLibraryAssets}</span>
+                    <span className={cn("text-xs", selectedCategory === "All assets" ? "text-neutral-400" : "text-neutral-500")}>{totalLibraryAssets}</span>
                   </button>
                 </li>
                 {categories.map(cat => renderCategory(cat))}
@@ -291,7 +356,7 @@ function Sidebar() {
               Tags
               <ChevronDown className="w-3 h-3" />
             </h3>
-            <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex flex-wrap gap-1 items-center">
             
               {availableTags.map(tag => {
                 const isSelected = selectedTags.includes(tag);
@@ -300,7 +365,7 @@ function Sidebar() {
                     key={tag} 
                     onClick={() => setSelectedTags(isSelected ? selectedTags.filter(t => t !== tag) : [...selectedTags, tag])}
                     className={cn(
-                      "px-2 py-1 text-xs border rounded transition-colors",
+                      "h-5 px-1.5 inline-flex items-center justify-center text-[10px] border rounded transition-colors",
                       isSelected 
                         ? "bg-[#0066cc]/20 text-blue-400 border-blue-500/50" 
                         : "bg-[#222] text-neutral-400 border-[#333] hover:border-[#555] hover:text-neutral-200"
