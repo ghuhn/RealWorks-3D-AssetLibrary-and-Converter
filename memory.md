@@ -1,6 +1,6 @@
 # Project Memory & Change Log
 
-## Current State (As of Jun 16, 2026)
+## Current State (As of Jun 17, 2026)
 - **Backend (Blender & Python Pipeline):** The core 3D conversion pipeline (`blender/convert.py`) now features a completely operational **Two-Stage AI Material Mapping** system. 
   - **Stage 1:** Lightning-fast Text-Only LLM Mapping via Gemini 2.5 Flash using semantic logic.
   - **Stage 2:** A Visual Language Model (VLM) fallback triggered automatically when names are arbitrary. It securely generates synthetic neon emission masks using Eevee in headless mode to completely bypass Blender C++ crashes.
@@ -55,3 +55,10 @@
 - **Built-in Blender Modules:** Programmed `convert.py` to seamlessly detect and auto-enable Blender's dormant `io_import_dxf` and `io_scene_3ds` modules.
 - **MAX Integration & Factory Bug:** Added support for importing 3ds Max files using the community `io_scene_max` extension. Discovered and fixed a critical bug where `bpy.ops.wm.read_factory_settings(use_empty=True)` was automatically unloading user extensions upon script startup, crashing the `.max` imports. Replaced it with a manual scene deletion loop.
 - **Headless FreeCAD Integration:** Built a Python subprocess bridge that automatically intercepts CAD formats (`.step`, `.igs`, `.iges`), launches the user's `FreeCADCmd.exe` silently in the background to tessellate the NURBS mathematical data into temporary `.obj` files, and pipes them effortlessly into Blender for USD conversion.
+
+### [Jun 17, 2026] UI Refinements & Styling Overhaul
+**Context:** Pulled latest commits from `main`.
+- **Global Typography:** Integrated Google's `Inter` font as the default sans-serif font across the entire Tailwind application.
+- **Sonner Toast Redesign:** Completely overhauled the Sonner toast CSS to feature a highly customized, grid-based notification design. Toasts now support structured titles, descriptions, and sleek dark mode tokens. Updated `Settings.tsx` to utilize this new structure on save.
+- **Queue Experience:** Improved the Queue table by distinctly labeling completed tasks with a green "Completed" badge instead of just "100%", and fixed time formatting.
+- **Scrollbar & Layout:** Added a custom, minimalistic scrollbar across the application and removed deprecated settings (Theme toggles and USDZ compression checkboxes) from the configuration screen.

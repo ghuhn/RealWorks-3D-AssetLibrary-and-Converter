@@ -68,9 +68,11 @@ def import_asset(filepath):
     elif ext in ['.usd', '.usda', '.usdc', '.usdz']:
         bpy.ops.wm.usd_import(filepath=filepath)
     elif ext == '.dxf':
-        try: bpy.ops.preferences.addon_enable(module='io_import_dxf')
-        except: pass
-        bpy.ops.import_scene.dxf(filepath=filepath)
+        try:
+            bpy.ops.import_scene.dxf(filepath=filepath)
+        except AttributeError:
+            my_print(f"Error: The .dxf importer extension is missing! Please install the 'Import AutoCAD DXF Format (.dxf)' extension from Blender Preferences -> Get Extensions.")
+            raise
     elif ext == '.3ds':
         try:
             bpy.ops.import_scene.max3ds(filepath=filepath)
