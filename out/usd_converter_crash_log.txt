@@ -1,0 +1,9 @@
+Traceback (most recent call last):
+  File "d:\RealWorks\Animation Preset Lib\ASSET LIB APP\blender\convert.py", line 848, in main
+    bpy.ops.wm.usd_import(filepath=usd_path)
+  File "C:\Program Files\Blender Foundation\Blender 4.3\4.3\scripts\modules\bpy\ops.py", line 109, in __call__
+    ret = _op_call(self.idname_py(), kw)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Error: USD Import: unable to open stage to read C:\out\Uncategorized\test\asset.usd
+Error: Could not open USD archive for reading, see console for detail
+

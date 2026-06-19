@@ -1,0 +1,25 @@
+Starting conversion for: test.obj
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\new_ui\imports\Asset_browser_IA.png: [Errno 2] No such file or directory: './out\\temp_tex\\Asset_browser_IA.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\new_ui\imports\image.png: [Errno 2] No such file or directory: './out\\temp_tex\\image.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\public\icon.png: [Errno 2] No such file or directory: './out\\temp_tex\\icon.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\public\logo.png: [Errno 2] No such file or directory: './out\\temp_tex\\logo.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\src-tauri\icons\128x128.png: [Errno 2] No such file or directory: './out\\temp_tex\\128x128.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\src-tauri\icons\128x128@2x.png: [Errno 2] No such file or directory: './out\\temp_tex\\128x128@2x.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\src-tauri\icons\32x32.png: [Errno 2] No such file or directory: './out\\temp_tex\\32x32.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\src-tauri\icons\icon.png: [Errno 2] No such file or directory: './out\\temp_tex\\icon.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\src-tauri\icons\Square107x107Logo.png: [Errno 2] No such file or directory: './out\\temp_tex\\Square107x107Logo.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\src-tauri\icons\Square142x142Logo.png: [Errno 2] No such file or directory: './out\\temp_tex\\Square142x142Logo.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\src-tauri\icons\Square150x150Logo.png: [Errno 2] No such file or directory: './out\\temp_tex\\Square150x150Logo.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\src-tauri\icons\Square284x284Logo.png: [Errno 2] No such file or directory: './out\\temp_tex\\Square284x284Logo.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\src-tauri\icons\Square30x30Logo.png: [Errno 2] No such file or directory: './out\\temp_tex\\Square30x30Logo.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\src-tauri\icons\Square310x310Logo.png: [Errno 2] No such file or directory: './out\\temp_tex\\Square310x310Logo.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\src-tauri\icons\Square44x44Logo.png: [Errno 2] No such file or directory: './out\\temp_tex\\Square44x44Logo.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\src-tauri\icons\Square71x71Logo.png: [Errno 2] No such file or directory: './out\\temp_tex\\Square71x71Logo.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\src-tauri\icons\Square89x89Logo.png: [Errno 2] No such file or directory: './out\\temp_tex\\Square89x89Logo.png'
+DEBUG: Failed to copy loose texture D:\RealWorks\Animation Preset Lib\ASSET LIB APP\src-tauri\icons\StoreLogo.png: [Errno 2] No such file or directory: './out\\temp_tex\\StoreLogo.png'
+DEBUG: AI Heuristic check - found_textures: True, key length: 0, provider: Local / Custom (Ollama/LM Studio)
+DEBUG: Asking AI Text-LLM to map textures...
+DEBUG: AI API failed: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>
+Conversion failed: Error: USD Import: unable to open stage to read C:\out\Uncategorized\test\asset.usd
+Error: Could not open USD archive for reading, see console for detail
+

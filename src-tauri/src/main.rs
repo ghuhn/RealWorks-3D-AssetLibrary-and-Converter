@@ -17,6 +17,9 @@ struct Settings {
     library_path: String,
     debug_blend_path: String,
     gemini_api_key: String,
+    ai_provider: String,
+    ai_model: String,
+    ai_url: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -86,9 +89,11 @@ fn init_db(app_dir: &Path) -> Connection {
     )
     .expect("Failed to create settings table");
     
-    // Add debug_blend_path column if it doesn't exist (migration)
     let _ = conn.execute("ALTER TABLE settings ADD COLUMN debug_blend_path TEXT DEFAULT ''", []);
     let _ = conn.execute("ALTER TABLE settings ADD COLUMN gemini_api_key TEXT DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE settings ADD COLUMN ai_provider TEXT DEFAULT 'Google Gemini'", []);
+    let _ = conn.execute("ALTER TABLE settings ADD COLUMN ai_model TEXT DEFAULT 'gemini-2.5-flash'", []);
+    let _ = conn.execute("ALTER TABLE settings ADD COLUMN ai_url TEXT DEFAULT ''", []);
 
     // Insert default settings if not exists
     let count: i64 = conn
@@ -97,7 +102,7 @@ fn init_db(app_dir: &Path) -> Connection {
 
     if count == 0 {
         conn.execute(
-            "INSERT INTO settings (id, blender_path, library_path, debug_blend_path, gemini_api_key) VALUES (1, '', '', '', '')",
+            "INSERT INTO settings (id, blender_path, library_path, debug_blend_path, gemini_api_key, ai_provider, ai_model, ai_url) VALUES (1, '', '', '', '', 'Google Gemini', 'gemini-2.5-flash', '')",
             [],
         )
         .expect("Failed to insert default settings");
@@ -108,7 +113,7 @@ fn init_db(app_dir: &Path) -> Connection {
 
 fn load_settings(conn: &Connection) -> Settings {
     conn.query_row(
-        "SELECT blender_path, library_path, debug_blend_path, gemini_api_key FROM settings WHERE id = 1",
+        "SELECT blender_path, library_path, debug_blend_path, gemini_api_key, ai_provider, ai_model, ai_url FROM settings WHERE id = 1",
         [],
         |row| {
             Ok(Settings {
@@ -116,6 +121,9 @@ fn load_settings(conn: &Connection) -> Settings {
                 library_path: row.get(1)?,
                 debug_blend_path: row.get(2).unwrap_or("".to_string()),
                 gemini_api_key: row.get(3).unwrap_or("".to_string()),
+                ai_provider: row.get(4).unwrap_or("Google Gemini".to_string()),
+                ai_model: row.get(5).unwrap_or("gemini-2.5-flash".to_string()),
+                ai_url: row.get(6).unwrap_or("".to_string()),
             })
         },
     )
@@ -124,6 +132,9 @@ fn load_settings(conn: &Connection) -> Settings {
         library_path: "".to_string(),
         debug_blend_path: "".to_string(),
         gemini_api_key: "".to_string(),
+        ai_provider: "Google Gemini".to_string(),
+        ai_model: "gemini-2.5-flash".to_string(),
+        ai_url: "".to_string(),
     })
 }
 
@@ -136,8 +147,8 @@ fn get_settings(state: State<AppState>) -> Settings {
 fn save_settings(settings: Settings, state: State<AppState>) -> Result<(), String> {
     let conn = state.db.lock().unwrap();
     conn.execute(
-        "UPDATE settings SET blender_path = ?1, library_path = ?2, debug_blend_path = ?3, gemini_api_key = ?4 WHERE id = 1",
-        params![settings.blender_path, settings.library_path, settings.debug_blend_path, settings.gemini_api_key],
+        "UPDATE settings SET blender_path = ?1, library_path = ?2, debug_blend_path = ?3, gemini_api_key = ?4, ai_provider = ?5, ai_model = ?6, ai_url = ?7 WHERE id = 1",
+        params![settings.blender_path, settings.library_path, settings.debug_blend_path, settings.gemini_api_key, settings.ai_provider, settings.ai_model, settings.ai_url],
     )
     .map_err(|e| e.to_string())?;
 
@@ -251,6 +262,9 @@ async fn convert_asset(path: String, is_batch: bool, state: State<'_, AppState>,
             .arg("Uncategorized")
             .arg(&settings.debug_blend_path)
             .arg(&settings.gemini_api_key)
+            .arg(&settings.ai_provider)
+            .arg(&settings.ai_model)
+            .arg(&settings.ai_url)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()

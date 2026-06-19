@@ -9,6 +9,9 @@ export interface AppSettings {
   library_path: string;
   debug_blend_path: string;
   gemini_api_key: string;
+  ai_provider: string;
+  ai_model: string;
+  ai_url: string;
 }
 
 export function Settings() {
@@ -16,7 +19,10 @@ export function Settings() {
     blender_path: '',
     library_path: '',
     debug_blend_path: '',
-    gemini_api_key: ''
+    gemini_api_key: '',
+    ai_provider: 'Google Gemini',
+    ai_model: 'gemini-2.5-flash',
+    ai_url: ''
   });
 
   const [defaultCat, setDefaultCat] = useState("Uncategorized");
@@ -164,20 +170,76 @@ export function Settings() {
                 </div>
               </div>
               <div className="grid grid-cols-[200px_1fr] gap-6 items-start">
-                <div className="pt-2 text-sm text-neutral-300">Gemini API Key</div>
+                <div className="pt-2 text-sm text-neutral-300">AI Provider</div>
+                <div className="space-y-2">
+                  <select 
+                    value={settings.ai_provider}
+                    onChange={e => {
+                      const val = e.target.value;
+                      let defaultModel = "gemini-2.5-flash";
+                      if (val === "OpenAI") defaultModel = "gpt-4o-mini";
+                      if (val === "Anthropic") defaultModel = "claude-3-5-sonnet-20240620";
+                      if (val === "Local / Custom (Ollama/LM Studio)") defaultModel = "llava";
+                      setSettings({...settings, ai_provider: val, ai_model: defaultModel});
+                    }}
+                    className="bg-[#111] border border-[#333] text-sm rounded px-3 py-2 text-neutral-200 focus:outline-none focus:border-blue-500 w-64"
+                  >
+                    <option>Google Gemini</option>
+                    <option>OpenAI</option>
+                    <option>Anthropic</option>
+                    <option>Local / Custom (Ollama/LM Studio)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-[200px_1fr] gap-6 items-start">
+                <div className="pt-2 text-sm text-neutral-300">API Key</div>
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <input 
                       type="password" 
                       value={settings.gemini_api_key}
                       onChange={e => setSettings({...settings, gemini_api_key: e.target.value})}
-                      placeholder="AIzaSy..."
+                      placeholder="sk-..."
                       className="flex-1 bg-[#111] border border-[#333] text-sm rounded px-3 py-2 text-neutral-200 focus:outline-none focus:border-blue-500 font-mono"
                     />
                   </div>
-                  <p className="text-xs text-neutral-500">Optional, used for AI texture mapping.</p>
+                  <p className="text-xs text-neutral-500">Optional for Local networks. Required for cloud providers.</p>
                 </div>
               </div>
+
+              <div className="grid grid-cols-[200px_1fr] gap-6 items-start">
+                <div className="pt-2 text-sm text-neutral-300">Model Name</div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="text" 
+                      value={settings.ai_model}
+                      onChange={e => setSettings({...settings, ai_model: e.target.value})}
+                      placeholder="gemini-2.5-flash"
+                      className="flex-1 bg-[#111] border border-[#333] text-sm rounded px-3 py-2 text-neutral-200 focus:outline-none focus:border-blue-500 font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {settings.ai_provider === 'Local / Custom (Ollama/LM Studio)' && (
+                <div className="grid grid-cols-[200px_1fr] gap-6 items-start">
+                  <div className="pt-2 text-sm text-neutral-300">Endpoint URL</div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="text" 
+                        value={settings.ai_url}
+                        onChange={e => setSettings({...settings, ai_url: e.target.value})}
+                        placeholder="http://192.168.1.50:11434/v1/chat/completions"
+                        className="flex-1 bg-[#111] border border-[#333] text-sm rounded px-3 py-2 text-neutral-200 focus:outline-none focus:border-blue-500 font-mono"
+                      />
+                    </div>
+                    <p className="text-xs text-neutral-500">The full URL to your local OpenAI-compatible endpoint.</p>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 
