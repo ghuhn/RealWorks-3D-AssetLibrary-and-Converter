@@ -3,6 +3,7 @@ import { Folder, HardDrive, Cpu, Save, Key } from "lucide-react";
 import { toast } from "sonner";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { PREDEFINED_CATEGORIES } from "../components/Layout";
 
 export interface AppSettings {
   blender_path: string;
@@ -12,6 +13,7 @@ export interface AppSettings {
   ai_provider: string;
   ai_model: string;
   ai_url: string;
+  freecad_path: string;
 }
 
 export function Settings() {
@@ -22,7 +24,8 @@ export function Settings() {
     gemini_api_key: '',
     ai_provider: 'Google Gemini',
     ai_model: 'gemini-2.5-flash',
-    ai_url: ''
+    ai_url: '',
+    freecad_path: ''
   });
 
   const [defaultCat, setDefaultCat] = useState("Uncategorized");
@@ -87,14 +90,14 @@ export function Settings() {
 
               <div className="grid grid-cols-[200px_1fr] gap-6 items-center">
                 <label className="text-sm text-neutral-300">Default Category</label>
-                <select 
+                <select
                   value={defaultCat}
                   onChange={e => setDefaultCat(e.target.value)}
                   className="bg-[#111] border border-[#333] text-sm rounded px-3 py-2 text-neutral-200 focus:outline-none focus:border-blue-500 w-64"
                 >
-                  <option>Uncategorized</option>
-                  <option>Props</option>
-                  <option>Furniture</option>
+                  {PREDEFINED_CATEGORIES.map(cat => (
+                    <option key={cat}>{cat}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -110,11 +113,11 @@ export function Settings() {
                 <div className="pt-2 text-sm text-neutral-300">Library Path</div>
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={settings.library_path}
                       onChange={e => setSettings({...settings, library_path: e.target.value})}
-                      placeholder="D:\3D_Assets\Universal_Library"
+                      placeholder="/home/user/3D_Assets/Library  or  C:\3D_Assets\Library"
                       className="flex-1 bg-[#111] border border-[#333] text-sm rounded px-3 py-2 text-neutral-200 focus:outline-none focus:border-blue-500 font-mono"
                     />
                     <button onClick={() => browseFolder('library_path')} className="px-3 py-2 bg-[#2a2a2a] hover:bg-[#333] border border-[#333] rounded text-sm transition-colors text-neutral-300">
@@ -137,11 +140,11 @@ export function Settings() {
                 <div className="pt-2 text-sm text-neutral-300">Blender Executable Path</div>
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={settings.blender_path}
                       onChange={e => setSettings({...settings, blender_path: e.target.value})}
-                      placeholder="C:\Program Files\Blender Foundation\Blender 4.0\blender.exe"
+                      placeholder="/usr/bin/blender  or  C:\Program Files\Blender Foundation\Blender 4.0\blender.exe"
                       className="flex-1 bg-[#111] border border-[#333] text-sm rounded px-3 py-2 text-neutral-200 focus:outline-none focus:border-blue-500 font-mono"
                     />
                     <button onClick={() => browseFile('blender_path')} className="px-3 py-2 bg-[#2a2a2a] hover:bg-[#333] border border-[#333] rounded text-sm transition-colors text-neutral-300">
@@ -152,14 +155,32 @@ export function Settings() {
                 </div>
               </div>
               <div className="grid grid-cols-[200px_1fr] gap-6 items-start">
+                <div className="pt-2 text-sm text-neutral-300">FreeCAD Executable Path</div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={settings.freecad_path}
+                      onChange={e => setSettings({...settings, freecad_path: e.target.value})}
+                      placeholder="/usr/bin/FreeCADCmd  or  C:\Program Files\FreeCAD\bin\FreeCADCmd.exe"
+                      className="flex-1 bg-[#111] border border-[#333] text-sm rounded px-3 py-2 text-neutral-200 focus:outline-none focus:border-blue-500 font-mono"
+                    />
+                    <button onClick={() => browseFile('freecad_path')} className="px-3 py-2 bg-[#2a2a2a] hover:bg-[#333] border border-[#333] rounded text-sm transition-colors text-neutral-300">
+                      Browse
+                    </button>
+                  </div>
+                  <p className="text-xs text-neutral-500">Required for importing .step, .igs, and .iges CAD files. Leave blank to auto-detect from PATH.</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-[200px_1fr] gap-6 items-start">
                 <div className="pt-2 text-sm text-neutral-300">Debug Blend Save Path</div>
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={settings.debug_blend_path}
                       onChange={e => setSettings({...settings, debug_blend_path: e.target.value})}
-                      placeholder="D:\Blend_files\3D_Assets"
+                      placeholder="/home/user/blend_files  or  D:\Blend_files\3D_Assets"
                       className="flex-1 bg-[#111] border border-[#333] text-sm rounded px-3 py-2 text-neutral-200 focus:outline-none focus:border-blue-500 font-mono"
                     />
                     <button onClick={() => browseFolder('debug_blend_path')} className="px-3 py-2 bg-[#2a2a2a] hover:bg-[#333] border border-[#333] rounded text-sm transition-colors text-neutral-300">
