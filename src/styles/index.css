@@ -26,6 +26,16 @@
   scrollbar-color: #333 transparent;
 }
 
+/* Hidden scrollbar — scroll still works, bar is invisible */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
 /* Custom Sonner Toast Styling to match reference */
 [data-sonner-toaster] {
   width: calc(var(--middle-workspace-width) * 0.5) !important;

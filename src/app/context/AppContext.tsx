@@ -22,6 +22,8 @@ export interface Asset {
   processingStartTime?: number;
   lastModified?: string;
   sizeBytes?: number;
+  needsReview?: boolean;
+  profileConfidence?: number;
 }
 
 export interface LogEntry {
@@ -49,6 +51,7 @@ interface AppContextType {
   addAvailableTag: (t: string) => void;
   updateAssetTags: (id: string, tags: string[]) => void;
   importAsset: (asset: Partial<Asset>) => void;
+  importAssetByPath: (path: string) => void;
   importFolder: () => void;
   retryAsset: (id: string) => void;
   retryAllFailed: () => void;
@@ -105,15 +108,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         tags: a.tags ? a.tags.split(',').map((t: string) => t.trim()).filter((t: string) => t) : [],
         sourceFormat: a.source_format || "Unknown",
         dateAdded: a.created_at,
-        thumbnail: a.thumbnail ? convertFileSrc(a.thumbnail) : "",
+        thumbnail: a.thumbnail ? convertFileSrc(a.thumbnail) + "?v=" + Date.now() : "",
         status: "Library" as AssetStatus,
         path: a.path,
-        sizeBytes: a.size_bytes || 0
+        sizeBytes: a.size_bytes || 0,
+        needsReview: a.needs_review || false,
+        profileConfidence: a.profile_confidence || 0,
       }));
       
       // Merge with queued/processing
       setAssets(prev => {
-        const active = prev.filter(a => a.status !== "Library");
+        // Keep only actively running/queued entries — Completed/Failed/Cancelled get
+        // replaced by the authoritative DB record which carries full tags & category.
+        const active = prev.filter(a => a.status === "Processing" || a.status === "Queued");
         const newLibraryAssets = mappedAssets.filter(ma => !active.some(act => act.name === ma.name));
         return [...newLibraryAssets, ...active];
       });
@@ -129,6 +136,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     loadAssets();
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen<{ asset_name: string; count: number }>('material-sanitizations', (event) => {
+      const { asset_name, count } = event.payload;
+      toast.warning(
+        `${count} material value${count > 1 ? 's were' : ' was'} auto-corrected`,
+        { description: `"${asset_name}" — open Asset Details to review or revert.`, duration: 8000 }
+      );
+    }).then(fn => { unlisten = fn; });
+    return () => { unlisten?.(); };
   }, []);
 
   useEffect(() => {
@@ -200,10 +219,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const selected = await open({
         multiple: false,
-        filters: [{
-          name: '3D Models',
-          extensions: ['fbx', 'obj', 'glb', 'gltf', 'blend', 'dae', 'stl', 'ply', 'usd', 'usda', 'usdz', 'max', 'dxf', 'igs', 'iges', 'step', '3ds']
-        }]
+        filters: [
+          {
+            name: '3D Models',
+            extensions: ['fbx', 'obj', 'glb', 'gltf', 'blend', 'dae', 'stl', 'ply', 'usd', 'usda', 'usdz', 'max', 'dxf', 'igs', 'IGS', 'iges', 'IGES', 'stp', 'STP', 'step', 'STEP', '3ds']
+          },
+          {
+            name: 'CAD Files',
+            extensions: ['step', 'STEP', 'stp', 'STP', 'igs', 'IGS', 'iges', 'IGES']
+          },
+          {
+            name: 'All Files',
+            extensions: ['*']
+          }
+        ]
       });
       if (selected) {
         const filePath = Array.isArray(selected) ? selected[0] : selected;
@@ -308,7 +337,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       selectedCategory, setSelectedCategory, selectedTags, setSelectedTags,
       selectedLog, setSelectedLog,
       availableTags, addAvailableTag, updateAssetTags,
-      importAsset, importFolder, retryAsset, retryAllFailed,
+      importAsset, importAssetByPath: convertAsset, importFolder, retryAsset, retryAllFailed,
       cancelAsset, clearCompleted, updateAssetStatus, deleteAsset
     }}>
       {children}

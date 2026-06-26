@@ -20,6 +20,38 @@ struct Settings {
     ai_provider: String,
     ai_model: String,
     ai_url: String,
+    freecad_path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct MaterialAnomaly {
+    material: String,
+    property: String,
+    current_value: serde_json::Value,
+    issue: String,
+    suggested_fix: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct MaterialSanitization {
+    material: String,
+    property: String,
+    original_value: serde_json::Value,
+    sanitized_value: serde_json::Value,
+    reason: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MaterialKey {
+    material: String,
+    property: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MaterialPatch {
+    material: String,
+    property: String,
+    value: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -34,6 +66,8 @@ struct Asset {
     animated: bool,
     created_at: String,
     size_bytes: u64,
+    needs_review: bool,
+    profile_confidence: f64,
 }
 
 fn get_dir_size(path: impl AsRef<Path>) -> u64 {
@@ -94,6 +128,9 @@ fn init_db(app_dir: &Path) -> Connection {
     let _ = conn.execute("ALTER TABLE settings ADD COLUMN ai_provider TEXT DEFAULT 'Google Gemini'", []);
     let _ = conn.execute("ALTER TABLE settings ADD COLUMN ai_model TEXT DEFAULT 'gemini-2.5-flash'", []);
     let _ = conn.execute("ALTER TABLE settings ADD COLUMN ai_url TEXT DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE settings ADD COLUMN freecad_path TEXT DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE assets ADD COLUMN needs_review INTEGER DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE assets ADD COLUMN profile_confidence REAL DEFAULT 0", []);
 
     // Insert default settings if not exists
     let count: i64 = conn
@@ -102,7 +139,7 @@ fn init_db(app_dir: &Path) -> Connection {
 
     if count == 0 {
         conn.execute(
-            "INSERT INTO settings (id, blender_path, library_path, debug_blend_path, gemini_api_key, ai_provider, ai_model, ai_url) VALUES (1, '', '', '', '', 'Google Gemini', 'gemini-2.5-flash', '')",
+            "INSERT INTO settings (id, blender_path, library_path, debug_blend_path, gemini_api_key, ai_provider, ai_model, ai_url, freecad_path) VALUES (1, '', '', '', '', 'Google Gemini', 'gemini-2.5-flash', '', '')",
             [],
         )
         .expect("Failed to insert default settings");
@@ -113,7 +150,7 @@ fn init_db(app_dir: &Path) -> Connection {
 
 fn load_settings(conn: &Connection) -> Settings {
     conn.query_row(
-        "SELECT blender_path, library_path, debug_blend_path, gemini_api_key, ai_provider, ai_model, ai_url FROM settings WHERE id = 1",
+        "SELECT blender_path, library_path, debug_blend_path, gemini_api_key, ai_provider, ai_model, ai_url, freecad_path FROM settings WHERE id = 1",
         [],
         |row| {
             Ok(Settings {
@@ -124,6 +161,7 @@ fn load_settings(conn: &Connection) -> Settings {
                 ai_provider: row.get(4).unwrap_or("Google Gemini".to_string()),
                 ai_model: row.get(5).unwrap_or("gemini-2.5-flash".to_string()),
                 ai_url: row.get(6).unwrap_or("".to_string()),
+                freecad_path: row.get(7).unwrap_or("".to_string()),
             })
         },
     )
@@ -135,6 +173,7 @@ fn load_settings(conn: &Connection) -> Settings {
         ai_provider: "Google Gemini".to_string(),
         ai_model: "gemini-2.5-flash".to_string(),
         ai_url: "".to_string(),
+        freecad_path: "".to_string(),
     })
 }
 
@@ -147,8 +186,8 @@ fn get_settings(state: State<AppState>) -> Settings {
 fn save_settings(settings: Settings, state: State<AppState>) -> Result<(), String> {
     let conn = state.db.lock().unwrap();
     conn.execute(
-        "INSERT OR REPLACE INTO settings (id, blender_path, library_path, debug_blend_path, gemini_api_key, ai_provider, ai_model, ai_url) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![settings.blender_path, settings.library_path, settings.debug_blend_path, settings.gemini_api_key, settings.ai_provider, settings.ai_model, settings.ai_url],
+        "INSERT OR REPLACE INTO settings (id, blender_path, library_path, debug_blend_path, gemini_api_key, ai_provider, ai_model, ai_url, freecad_path) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![settings.blender_path, settings.library_path, settings.debug_blend_path, settings.gemini_api_key, settings.ai_provider, settings.ai_model, settings.ai_url, settings.freecad_path],
     )
     .map_err(|e| e.to_string())?;
 
@@ -160,7 +199,7 @@ fn save_settings(settings: Settings, state: State<AppState>) -> Result<(), Strin
 fn get_assets(state: State<AppState>) -> Result<Vec<Asset>, String> {
     let conn = state.db.lock().unwrap();
     let mut stmt = conn
-        .prepare("SELECT id, name, category, tags, path, thumbnail, source_format, animated, created_at FROM assets ORDER BY created_at DESC")
+        .prepare("SELECT id, name, category, tags, path, thumbnail, source_format, animated, created_at, needs_review, profile_confidence FROM assets ORDER BY created_at DESC")
         .map_err(|e| e.to_string())?;
 
     let asset_iter = stmt
@@ -179,6 +218,11 @@ fn get_assets(state: State<AppState>) -> Result<Vec<Asset>, String> {
                 },
                 created_at: row.get(8)?,
                 size_bytes: 0,
+                needs_review: {
+                    let v: i32 = row.get(9).unwrap_or(0);
+                    v != 0
+                },
+                profile_confidence: row.get(10).unwrap_or(0.0),
             })
         })
         .map_err(|e| e.to_string())?;
@@ -223,8 +267,8 @@ async fn convert_asset(path: String, is_batch: bool, state: State<'_, AppState>,
                 let p = entry.path();
                 if p.is_file() {
                     if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
-                        let ext = ext.to_lowercase();
-                        if ["fbx", "obj", "glb", "gltf", "blend", "dae", "stl", "ply", "usd", "usda", "usdz", "max", "dxf", "igs", "iges", "step", "3ds"].contains(&ext.as_str()) {
+                        let ext = ext.to_ascii_lowercase();
+                        if ["fbx", "obj", "glb", "gltf", "blend", "dae", "stl", "ply", "usd", "usda", "usdz", "max", "dxf", "igs", "iges", "stp", "step", "3ds"].contains(&ext.as_str()) {
                             files.push(p.to_string_lossy().to_string());
                         }
                     }
@@ -265,6 +309,7 @@ async fn convert_asset(path: String, is_batch: bool, state: State<'_, AppState>,
             .arg(&settings.ai_provider)
             .arg(&settings.ai_model)
             .arg(&settings.ai_url)
+            .arg(&settings.freecad_path)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -322,14 +367,27 @@ async fn convert_asset(path: String, is_batch: bool, state: State<'_, AppState>,
                         let thumbnail = metadata["thumbnail"].as_str().unwrap_or("").to_string();
                         let asset_path = metadata["asset_path"].as_str().unwrap_or("").to_string();
                         let animated = metadata["animated"].as_bool().unwrap_or(false);
+                        let needs_review = metadata["needs_review"].as_bool().unwrap_or(false);
+                        let profile_confidence = metadata["profile_confidence"].as_f64().unwrap_or(0.0);
                         let created_at = Utc::now().to_rfc3339();
 
                         let conn = state.db.lock().unwrap();
                         let _ = conn.execute(
-                            "INSERT OR REPLACE INTO assets (id, name, category, tags, path, thumbnail, source_format, animated, created_at) 
-                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                            params![id, name, category, tags, asset_path, thumbnail, source_format, animated, created_at],
+                            "INSERT OR REPLACE INTO assets (id, name, category, tags, path, thumbnail, source_format, animated, created_at, needs_review, profile_confidence)
+                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                            params![id, name, category, tags, asset_path, thumbnail, source_format, animated, created_at, needs_review, profile_confidence],
                         );
+                        drop(conn);
+
+                        // Notify frontend if material values were auto-corrected
+                        if let Some(sanz) = metadata.get("material_sanitizations").and_then(|v| v.as_array()) {
+                            if !sanz.is_empty() {
+                                let _ = _app.emit("material-sanitizations", serde_json::json!({
+                                    "asset_name": name,
+                                    "count": sanz.len()
+                                }));
+                            }
+                        }
                     }
                 }
             }
@@ -448,6 +506,306 @@ fn get_texture_files(category: String, name: String, state: State<'_, AppState>)
     Ok(files)
 }
 
+#[tauri::command]
+fn get_asset_profile(category: String, name: String, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let settings = state.settings.lock().unwrap();
+    let profile_path = Path::new(&settings.library_path)
+        .join(&category)
+        .join(&name)
+        .join("asset_profile.json");
+
+    if !profile_path.exists() {
+        return Ok(serde_json::Value::Null);
+    }
+
+    let content = fs::read_to_string(&profile_path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_asset_profile(category: String, name: String, profile: serde_json::Value, state: State<'_, AppState>) -> Result<(), String> {
+    let settings = state.settings.lock().unwrap();
+    let lib = Path::new(&settings.library_path);
+    let asset_dir = lib.join(&category).join(&name);
+
+    let profile_path = asset_dir.join("asset_profile.json");
+    let content = serde_json::to_string_pretty(&profile).map_err(|e| e.to_string())?;
+    fs::write(&profile_path, content).map_err(|e| e.to_string())?;
+
+    // Mirror needs_review / profile_confidence back into metadata.json
+    let metadata_path = asset_dir.join("metadata.json");
+    if metadata_path.exists() {
+        if let Ok(raw) = fs::read_to_string(&metadata_path) {
+            if let Ok(mut meta) = serde_json::from_str::<serde_json::Value>(&raw) {
+                if let Some(obj) = meta.as_object_mut() {
+                    let needs_review = profile["needs_review"].as_bool().unwrap_or(false);
+                    let conf = profile["overall_confidence"].as_f64().unwrap_or(0.0);
+                    obj.insert("needs_review".to_string(), serde_json::Value::Bool(needs_review));
+                    obj.insert("profile_confidence".to_string(), serde_json::json!(conf));
+                }
+                if let Ok(updated) = serde_json::to_string_pretty(&meta) {
+                    let _ = fs::write(&metadata_path, updated);
+                }
+            }
+        }
+    }
+
+    // Update the DB row
+    let needs_review_i = if profile["needs_review"].as_bool().unwrap_or(false) { 1i32 } else { 0i32 };
+    let conf = profile["overall_confidence"].as_f64().unwrap_or(0.0);
+    drop(settings);
+    let conn = state.db.lock().unwrap();
+    let _ = conn.execute(
+        "UPDATE assets SET needs_review = ?1, profile_confidence = ?2 WHERE name = ?3 AND category = ?4",
+        params![needs_review_i, conf, name, category],
+    );
+
+    Ok(())
+}
+
+#[tauri::command]
+fn get_material_anomalies(
+    category: String,
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<MaterialAnomaly>, String> {
+    let settings = state.settings.lock().unwrap();
+    let metadata_path = Path::new(&settings.library_path)
+        .join(&category).join(&name).join("metadata.json");
+
+    if !metadata_path.exists() {
+        return Ok(vec![]);
+    }
+
+    let content = fs::read_to_string(&metadata_path).map_err(|e| e.to_string())?;
+    let meta: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+
+    let anomalies = meta["material_anomalies"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect())
+        .unwrap_or_default();
+
+    Ok(anomalies)
+}
+
+#[tauri::command]
+async fn apply_material_fixes(
+    category: String,
+    name: String,
+    patches: Vec<MaterialPatch>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    use tokio::process::Command as TokioCommand;
+    use std::process::Stdio;
+
+    let settings = state.settings.lock().unwrap().clone();
+    let asset_dir = Path::new(&settings.library_path).join(&category).join(&name);
+    let usd_path  = asset_dir.join("asset.usd");
+
+    if !usd_path.exists() {
+        return Err(format!("USD file not found: {:?}", usd_path));
+    }
+
+    // Locate patch_materials.py next to convert.py
+    let current_dir = std::env::current_dir().unwrap();
+    let mut script_path = current_dir.join("blender").join("patch_materials.py");
+    if !script_path.exists() {
+        if let Some(parent) = current_dir.parent() {
+            script_path = parent.join("blender").join("patch_materials.py");
+        }
+    }
+    if !script_path.exists() {
+        return Err(format!("patch_materials.py not found (looked in {:?})", script_path));
+    }
+
+    let patches_json = serde_json::to_string(&patches).map_err(|e| e.to_string())?;
+
+    let output = TokioCommand::new(&settings.blender_path)
+        .args([
+            "--background",
+            "--python", script_path.to_str().unwrap(),
+            "--",
+            usd_path.to_str().unwrap(),
+            &patches_json,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| format!("Failed to launch Blender: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if !stdout.contains("PATCH_OK") {
+        return Err(format!("Patch script failed.\nstdout: {}\nstderr: {}", &stdout[..stdout.len().min(800)], &stderr[..stderr.len().min(400)]));
+    }
+
+    // Remove the resolved anomalies from metadata.json
+    let metadata_path = asset_dir.join("metadata.json");
+    if metadata_path.exists() {
+        if let Ok(content) = fs::read_to_string(&metadata_path) {
+            if let Ok(mut meta) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(obj) = meta.as_object_mut() {
+                    let resolved: Vec<(String, String)> = patches.iter()
+                        .map(|p| (p.material.clone(), p.property.clone()))
+                        .collect();
+
+                    if let Some(arr) = obj.get_mut("material_anomalies").and_then(|v| v.as_array_mut()) {
+                        arr.retain(|a| {
+                            let m = a["material"].as_str().unwrap_or("");
+                            let p = a["property"].as_str().unwrap_or("");
+                            !resolved.iter().any(|(rm, rp)| rm == m && rp == p)
+                        });
+                    }
+                }
+                if let Ok(updated) = serde_json::to_string_pretty(&meta) {
+                    let _ = fs::write(&metadata_path, updated);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn get_material_sanitizations(
+    category: String,
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<MaterialSanitization>, String> {
+    let settings = state.settings.lock().unwrap();
+    let metadata_path = Path::new(&settings.library_path)
+        .join(&category).join(&name).join("metadata.json");
+
+    if !metadata_path.exists() {
+        return Ok(vec![]);
+    }
+
+    let content = fs::read_to_string(&metadata_path).map_err(|e| e.to_string())?;
+    let meta: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+
+    let sanitizations = meta["material_sanitizations"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect())
+        .unwrap_or_default();
+
+    Ok(sanitizations)
+}
+
+#[tauri::command]
+async fn revert_material_sanitization(
+    category: String,
+    name: String,
+    patches: Vec<MaterialPatch>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    use tokio::process::Command as TokioCommand;
+    use std::process::Stdio;
+
+    let settings = state.settings.lock().unwrap().clone();
+    let asset_dir = Path::new(&settings.library_path).join(&category).join(&name);
+    let usd_path = asset_dir.join("asset.usd");
+
+    if !usd_path.exists() {
+        return Err(format!("USD file not found: {:?}", usd_path));
+    }
+
+    let current_dir = std::env::current_dir().unwrap();
+    let mut script_path = current_dir.join("blender").join("patch_materials.py");
+    if !script_path.exists() {
+        if let Some(parent) = current_dir.parent() {
+            script_path = parent.join("blender").join("patch_materials.py");
+        }
+    }
+    if !script_path.exists() {
+        return Err(format!("patch_materials.py not found at {:?}", script_path));
+    }
+
+    let patches_json = serde_json::to_string(&patches).map_err(|e| e.to_string())?;
+
+    let output = TokioCommand::new(&settings.blender_path)
+        .args(["--background", "--python", script_path.to_str().unwrap(),
+               "--", usd_path.to_str().unwrap(), &patches_json])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| format!("Failed to launch Blender: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    if !stdout.contains("PATCH_OK") {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(format!("Patch failed.\nstdout: {}\nstderr: {}",
+            &stdout[..stdout.len().min(800)], &stderr[..stderr.len().min(400)]));
+    }
+
+    // Remove reverted entries from material_sanitizations in metadata.json
+    let metadata_path = asset_dir.join("metadata.json");
+    if metadata_path.exists() {
+        if let Ok(content) = fs::read_to_string(&metadata_path) {
+            if let Ok(mut meta) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(obj) = meta.as_object_mut() {
+                    let resolved: Vec<(&str, &str)> = patches.iter()
+                        .map(|p| (p.material.as_str(), p.property.as_str()))
+                        .collect();
+                    if let Some(arr) = obj.get_mut("material_sanitizations").and_then(|v| v.as_array_mut()) {
+                        arr.retain(|s| {
+                            let m = s["material"].as_str().unwrap_or("");
+                            let p = s["property"].as_str().unwrap_or("");
+                            !resolved.iter().any(|(rm, rp)| *rm == m && *rp == p)
+                        });
+                    }
+                }
+                if let Ok(updated) = serde_json::to_string_pretty(&meta) {
+                    let _ = fs::write(&metadata_path, updated);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn accept_material_sanitizations(
+    category: String,
+    name: String,
+    keys: Vec<MaterialKey>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let settings = state.settings.lock().unwrap();
+    let metadata_path = Path::new(&settings.library_path)
+        .join(&category).join(&name).join("metadata.json");
+
+    if !metadata_path.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(&metadata_path).map_err(|e| e.to_string())?;
+    let mut meta: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+
+    if let Some(obj) = meta.as_object_mut() {
+        if let Some(arr) = obj.get_mut("material_sanitizations").and_then(|v| v.as_array_mut()) {
+            if keys.is_empty() {
+                arr.clear(); // Accept all
+            } else {
+                arr.retain(|s| {
+                    let m = s["material"].as_str().unwrap_or("");
+                    let p = s["property"].as_str().unwrap_or("");
+                    !keys.iter().any(|k| k.material == m && k.property == p)
+                });
+            }
+        }
+    }
+
+    let updated = serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?;
+    fs::write(&metadata_path, updated).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -476,7 +834,14 @@ fn main() {
             delete_asset,
             update_asset_tags,
             open_folder,
-            get_texture_files
+            get_texture_files,
+            get_asset_profile,
+            save_asset_profile,
+            get_material_anomalies,
+            apply_material_fixes,
+            get_material_sanitizations,
+            revert_material_sanitization,
+            accept_material_sanitizations
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

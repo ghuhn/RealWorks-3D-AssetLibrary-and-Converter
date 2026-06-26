@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { FolderPlus, FilePlus, Search, Box, ListVideo, Terminal, Settings as SettingsIcon, ChevronRight, ChevronDown, CheckCircle2, XCircle, Loader2, AlertCircle, Plus, Menu, Info, AlertTriangle, X } from "lucide-react";
+import { FolderPlus, FilePlus, Search, Box, ListVideo, Terminal, Settings as SettingsIcon, ChevronRight, ChevronDown, CheckCircle2, XCircle, Loader2, AlertCircle, Menu, Info, AlertTriangle, X } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { motion, AnimatePresence } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
@@ -73,7 +73,7 @@ export function Layout() {
                 </div>
 
                 {isQueueExpanded && (
-                  <div className="flex-1 overflow-y-auto border-t border-[#2a2a2a] p-2 space-y-1">
+                  <div className="flex-1 overflow-y-auto scrollbar-hide border-t border-[#2a2a2a] p-2 space-y-1">
                     {[...processing, ...queue].map(asset => (
                       <div key={asset.id} className="flex items-center justify-between px-3 py-2 bg-[#222] rounded border border-[#333] text-sm">
                         <div className="flex items-center gap-3">
@@ -136,7 +136,7 @@ export function Layout() {
                       <X className="w-5 h-5" />
                     </button>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                  <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide">
                     <div className="grid grid-cols-2 gap-6">
                       <div>
                         <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">Timestamp</h3>
@@ -171,15 +171,28 @@ export type CategoryNode = {
   subcategories?: CategoryNode[];
 };
 
-export const categories: CategoryNode[] = [
-  { name: "Furniture" },
-  { name: "Vehicles" },
-  { name: "Characters" },
-  { name: "Nature" },
-  { name: "Props" },
-  { name: "Materials" },
-  { name: "Uncategorized" }
-];
+export const PREDEFINED_CATEGORIES = [
+  "Vehicles",
+  "Vegetation",
+  "Mythical Creatures",
+  "Characters",
+  "Creatures",
+  "Furniture",
+  "Appliances",
+  "Fittings",
+  "Buildings",
+  "Animals",
+  "Weapons",
+  "Decor",
+  "FX",
+  "Decals",
+  "Food",
+  "Props",
+  "Sports",
+  "Uncategorized",
+] as const;
+
+export const categories: CategoryNode[] = PREDEFINED_CATEGORIES.map(name => ({ name }));
 
 export const getCategoryNames = (cat: CategoryNode): string[] => {
   let names = [cat.name];
@@ -206,10 +219,7 @@ export const getAllNamesForCategory = (name: string, list: CategoryNode[] = cate
 
 function Sidebar() {
   const location = useLocation();
-  const { assets, importAsset, importFolder, selectedCategory, setSelectedCategory, selectedTags, setSelectedTags, availableTags, addAvailableTag } = useAppContext();
-  
-  const [isAddingTag, setIsAddingTag] = useState(false);
-  const [newTag, setNewTag] = useState("");
+  const { assets, importAsset, importFolder, selectedCategory, setSelectedCategory, selectedTags, setSelectedTags, availableTags } = useAppContext();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const navItems = [
@@ -221,6 +231,7 @@ function Sidebar() {
 
 
   const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({ "Categories": true, "Tags": true });
+  const [tagSearch, setTagSearch] = useState("");
 
   const toggleCat = (catName: string) => {
     setExpandedCats(prev => ({ ...prev, [catName]: !prev[catName] }));
@@ -257,7 +268,7 @@ function Sidebar() {
     <motion.aside 
       animate={{ width: isCollapsed ? 64 : 196 }}
       transition={{ type: "tween", duration: 0.3, ease: "easeInOut" }}
-      className="flex flex-col bg-[#141414] overflow-y-auto shrink-0 overflow-x-hidden"
+      className="flex flex-col bg-[#141414] overflow-y-auto scrollbar-hide shrink-0 overflow-x-hidden"
     >
       <div className={cn("h-14 flex items-center shrink-0 transition-colors", isCollapsed ? "justify-center" : "gap-3 px-4")}>
         <button 
@@ -321,7 +332,7 @@ function Sidebar() {
       </nav>
 
       {location.pathname === "/" && (
-        <div className={cn("flex-1 overflow-y-auto custom-scrollbar outline-none", isCollapsed ? "hidden" : "p-4")} tabIndex={0}>
+        <div className={cn("flex-1 overflow-y-auto scrollbar-hide outline-none", isCollapsed ? "hidden" : "p-4")} tabIndex={0}>
           <div className="mb-6">
             <h3 
               onClick={() => toggleCat('Categories')}
@@ -360,62 +371,46 @@ function Sidebar() {
               Tags
             </h3>
             {expandedCats['Tags'] && (
-              <div className="flex flex-wrap gap-1 items-center">
-                {availableTags.map(tag => {
-                  const isSelected = selectedTags.includes(tag);
-                  return (
-                    <button 
-                      key={tag} 
-                      onClick={() => setSelectedTags(isSelected ? selectedTags.filter(t => t !== tag) : [...selectedTags, tag])}
-                      className={cn(
-                        "h-5 px-1.5 inline-flex items-center justify-center text-[10px] border rounded transition-colors",
-                        isSelected 
-                          ? "bg-[#0066cc]/20 text-blue-400 border-blue-500/50" 
-                          : "bg-[#222] text-neutral-400 border-[#333] hover:border-[#555] hover:text-neutral-200"
-                      )}
-                    >
-                      {tag}
-                    </button>
-                  );
-                })}
-                {!isAddingTag ? (
-                  <button
-                    onClick={() => setIsAddingTag(true)}
-                  className="w-5 h-5 flex items-center justify-center rounded border border-dashed border-[#555] bg-transparent hover:bg-[#333] hover:border-solid text-neutral-500 hover:text-white transition-all flex-shrink-0"
-                  title="Create new tag"
-                >
-                  <Plus className="w-3 h-3" />
-                </button>
-              ) : (
-                <input
-                  autoFocus
-                  type="text"
-                  value={newTag}
-                  onChange={(e) => setNewTag(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && newTag.trim()) {
-                      const rawTags = newTag.split(',').map(t => t.trim()).filter(Boolean);
-                      rawTags.forEach(rawTag => {
-                        const existingAvailable = availableTags.find(t => t.toLowerCase() === rawTag.toLowerCase());
-                        if (!existingAvailable) {
-                          addAvailableTag(rawTag);
-                        }
-                      });
-                      setNewTag("");
-                      setIsAddingTag(false);
-                    } else if (e.key === 'Escape') {
-                      setIsAddingTag(false);
-                      setNewTag("");
-                    }
-                  }}
-                  onBlur={() => {
-                    setIsAddingTag(false);
-                    setNewTag("");
-                  }}
-                  className="h-5 w-20 px-1.5 text-[10px] bg-[#111] border border-[#333] text-white rounded focus:outline-none focus:border-blue-500"
-                  placeholder="new tag"
-                />
-              )}
+              <div className="flex flex-col gap-2">
+                {availableTags.length > 0 && (
+                  <div className="relative group">
+                    <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-neutral-500 group-focus-within:text-blue-400 transition-colors" />
+                    <input
+                      type="text"
+                      value={tagSearch}
+                      onChange={(e) => setTagSearch(e.target.value)}
+                      placeholder="Search tags..."
+                      className="w-full bg-[#111] border border-[#333] rounded pl-6 pr-2 py-1 text-[10px] focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-neutral-600 text-neutral-300"
+                    />
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-1">
+                  {availableTags
+                    .filter(t => t.toLowerCase().includes(tagSearch.toLowerCase()))
+                    .map(tag => {
+                      const isSelected = selectedTags.includes(tag);
+                      return (
+                        <button
+                          key={tag}
+                          onClick={() => setSelectedTags(isSelected ? selectedTags.filter(t => t !== tag) : [...selectedTags, tag])}
+                          className={cn(
+                            "h-5 px-1.5 inline-flex items-center justify-center text-[10px] border rounded transition-colors",
+                            isSelected
+                              ? "bg-[#0066cc]/20 text-blue-400 border-blue-500/50"
+                              : "bg-[#222] text-neutral-400 border-[#333] hover:border-[#555] hover:text-neutral-200"
+                          )}
+                        >
+                          {tag}
+                        </button>
+                      );
+                    })}
+                  {availableTags.length === 0 && (
+                    <span className="text-[10px] text-neutral-600 italic">No tags yet</span>
+                  )}
+                  {availableTags.length > 0 && tagSearch && availableTags.filter(t => t.toLowerCase().includes(tagSearch.toLowerCase())).length === 0 && (
+                    <span className="text-[10px] text-neutral-600 italic">No matches</span>
+                  )}
+                </div>
               </div>
             )}
           </div>

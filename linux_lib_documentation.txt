@@ -1,0 +1,518 @@
+================================================================================
+  REALWORKS 3D ASSET LIBRARY & CONVERTER — LINE LIB DOCUMENTATION
+================================================================================
+  Version : 0.1.0
+  Platform : Linux / Windows (cross-platform desktop app)
+  Updated  : 2026-06-23
+================================================================================
+
+
+────────────────────────────────────────────────────────────────────────────────
+1. OVERVIEW
+────────────────────────────────────────────────────────────────────────────────
+
+RealWorks 3D Asset Library & Converter is a desktop application that converts
+3D assets from various source formats into USD (Universal Scene Description)
+and organises them in a searchable, browsable local library. It uses Blender
+as the conversion engine, an optional AI pipeline for material/texture mapping
+and asset tagging, and FreeCAD for CAD file import.
+
+Primary use case: preparing raw 3D assets (downloaded, exported from DCC tools,
+or sourced from CAD) for use in a scene-building pipeline such as Promethean AI.
+
+
+────────────────────────────────────────────────────────────────────────────────
+2. TECH STACK
+────────────────────────────────────────────────────────────────────────────────
+
+  LAYER            TECHNOLOGY
+  ───────────────  ──────────────────────────────────────────────────────────
+  Desktop Shell    Tauri v2 (Rust + WebView)
+  Frontend         React 19 + TypeScript + Vite 7 + Tailwind CSS v4
+  UI Components    Shadcn-style custom components, Lucide React icons
+  Animations       Motion (Framer Motion successor)
+  Toasts           Sonner
+  Routing          React Router v7
+  Backend          Rust (Tauri commands) + SQLite (rusqlite, bundled)
+  Async Runtime    Tokio (full features)
+  HTTP Client      reqwest (for Rust-side calls if needed)
+  Conversion       Blender 4.x (headless, --background --python)
+  Pipeline Script  Python 3.x (blender/convert.py, runs inside Blender)
+  CAD Import       FreeCAD (optional, for .step/.stp/.igs/.iges files)
+  AI Providers     Google Gemini, OpenAI, Anthropic, Local Ollama/LM Studio
+  Storage          SQLite database (library.db in Tauri app data dir)
+  File Protocol    Tauri asset:// protocol (for serving local thumbnails)
+
+  Key dependencies (frontend):
+    @tauri-apps/api ^2          — Tauri JS bridge
+    @tauri-apps/plugin-dialog   — Native file/folder picker dialogs
+    @tauri-apps/plugin-fs       — Filesystem access
+    @tauri-apps/plugin-opener   — Open folders in system file manager
+    react-router ^7             — Client-side routing
+    sonner ^2                   — Toast notifications
+    lucide-react ^1.17          — Icon library
+    motion ^12                  — Animation library
+
+  Key dependencies (Rust):
+    tauri 2 + protocol-asset    — Desktop shell, asset serving
+    rusqlite 0.40 (bundled)     — SQLite ORM
+    serde / serde_json          — Serialisation
+    uuid 1 (v4)                 — Asset ID generation
+    chrono 0.4                  — Timestamps
+    tokio 1 (full)              — Async runtime
+    trash 5                     — Cross-platform file deletion
+
+
+────────────────────────────────────────────────────────────────────────────────
+3. PROJECT STRUCTURE
+────────────────────────────────────────────────────────────────────────────────
+
+  /
+  ├── src/                        React frontend (the active UI)
+  │   ├── main.tsx                App entry point
+  │   └── app/
+  │       ├── context/
+  │       │   └── AppContext.tsx  Global state, Tauri invocations, asset queue
+  │       ├── screens/
+  │       │   ├── Library.tsx     Browse / search / filter library
+  │       │   └── Settings.tsx    App configuration UI
+  │       ├── components/
+  │       │   └── Layout.tsx      Shell layout, import buttons, sidebar
+  │       └── routes.tsx          React Router route definitions
+  │
+  ├── src-tauri/
+  │   ├── src/main.rs             Rust backend: commands, DB, Blender spawning
+  │   ├── Cargo.toml              Rust dependencies
+  │   ├── tauri.conf.json         Tauri config (asset protocol, CSP, etc.)
+  │   └── capabilities/
+  │       └── default.json        Permission grants (dialog, fs, opener)
+  │
+  ├── blender/
+  │   └── convert.py              Python conversion pipeline (runs in Blender)
+  │
+  ├── new_ui/                     UNUSED — old design iteration, not served
+  └── line_lib_documentation.txt  This file
+
+
+────────────────────────────────────────────────────────────────────────────────
+4. SUPPORTED FILE FORMATS
+────────────────────────────────────────────────────────────────────────────────
+
+  FORMAT         EXTENSION(S)              IMPORTER
+  ─────────────  ────────────────────────  ─────────────────────────────────
+  FBX            .fbx                      Blender native
+  OBJ            .obj                      Blender native (wm.obj_import)
+  GLTF / GLB     .gltf, .glb              Blender native
+  Blender        .blend                    Blender native (multi-asset)
+  Collada        .dae                      Blender native
+  STL            .stl                      Blender native
+  PLY            .ply                      Blender native
+  USD            .usd, .usda, .usdc,       Blender native
+                 .usdz
+  AutoCAD DXF    .dxf                      Blender extension (optional)
+  3ds Max        .3ds                      Blender extension (optional)
+  3ds Max scene  .max                      Blender extension (optional)
+  STEP / CAD     .step, .stp,              FreeCAD → tessellate → OBJ →
+                 .igs, .iges               import into Blender
+                 (case-insensitive)
+
+  Output format: USD (.usd) — exported by Blender's USD exporter.
+  Textures are copied into a textures/ subfolder alongside the .usd file.
+
+
+────────────────────────────────────────────────────────────────────────────────
+5. CONVERSION PIPELINE  (blender/convert.py)
+────────────────────────────────────────────────────────────────────────────────
+
+Blender is spawned headless for every import job:
+  blender --background --python blender/convert.py -- <args>
+
+Arguments passed (in order):
+  [0]  input_file        — source 3D file path
+  [1]  output_dir        — library root path
+  [2]  category          — default category (e.g. "Uncategorized")
+  [3]  debug_blend_path  — optional: save .blend for inspection
+  [4]  gemini_api_key    — AI API key
+  [5]  ai_provider       — provider name string
+  [6]  ai_model          — model identifier string
+  [7]  ai_url            — endpoint URL (local providers)
+  [8]  freecad_path      — path to FreeCAD executable
+
+Pipeline steps per asset:
+
+  1. setup_scene()
+       Clears the default Blender scene (cube, camera, light).
+
+  2. import_asset(filepath, freecad_path)
+       Detects extension and calls the appropriate importer.
+       For CAD files: spawns FreeCAD subprocess to tessellate to OBJ first.
+       FreeCAD resolution order:
+         a) User-configured path from Settings
+         b) shutil.which() for FreeCADCmd/freecadcmd/FreeCAD/freecad
+         c) Known Linux paths (/usr/bin/, /snap/bin/, etc.)
+         d) Known Windows paths (Program Files)
+       On Linux, non-Cmd FreeCAD binaries are called with --console flag
+       to run headlessly (avoids launching the GUI).
+
+  3. normalize_scene()
+       - Removes cameras, lights, empty objects
+       - Applies all transforms (location, rotation, scale) to meshes
+       - Detects unit mismatch (e.g. asset authored in cm → 100x too large)
+       - Rescales to a target 2.0m bounding box if outside [0.05m, 100m]
+
+  4. sanitize_materials()
+       Fixes common material export artifacts:
+         - Accidental 100% metallic (Metallic=1.0 without a texture → 0.0)
+         - Accidental 0% roughness (Roughness=0.0 without a texture → 0.6)
+         - Pitch-black diffuse (Base Color=0,0,0 without a texture → 0.8 grey)
+         - Missing Principled BSDF → rebuild node tree from scratch
+
+  5. segment_scene()  [.blend files only]
+       Detects individual assets within a multi-object .blend scene.
+       Groups mesh objects by collection or by AI-assisted segmentation.
+       AI groups meshes logically (e.g. Table_Leg + Table_Top → "Dining Table")
+       and assigns category + searchable tags. Falls back to per-object export
+       if AI is unavailable.
+
+  6. heuristic_texture_linking()
+       Discovers loose textures near the source file:
+         - Scans subfolders named textures/, tex/, maps/, images/, etc.
+         - Scans sibling folders of the source file
+         - Loads all found images into Blender and reloads any with no pixel data
+
+       Stage 1 — Text LLM (semantic name matching):
+         Sends all material names and texture filenames to the AI.
+         Rules applied: strip .001/.002 Blender suffixes, map # to space,
+         identify PBR socket type from keywords (BaseColor/Roughness/Normal/etc).
+         Returns JSON: { "MaterialName": { "Base Color": "texture.png", ... } }
+
+       Stage 2 — VLM Fallback (triggered when):
+         - Text LLM explicitly returns REQUIRE_VLM (names are meaningless)
+         - Coverage < 40% of materials mapped with > 3 materials in scene
+         - ≤ 2 materials mapped but ≥ 6 textures available
+
+       VLM path A — Semantic filenames (≥30% of names have recognisable words):
+         Renders a colour-coded mask (each material = distinct neon colour).
+         Sends mask + up to 20 prioritised texture thumbnails (BaseColor first).
+         Full list of all texture filenames also sent as text so the VLM can
+         reference any filename even if not shown as an image.
+
+       VLM path B — Arbitrary filenames (>70% are img001.png style):
+         Stage A: Classify ALL textures in batches of 20 → PBR type + 2-4 word
+                  visual description (e.g. "rough brown bark").
+         Stage B: Send colour-coded mask + all classifications as text.
+                  VLM assigns classified textures to materials by visual match.
+                  No image-count limit on Stage B (all info is text).
+
+       After mapping: applies texture nodes to Blender materials (Principled
+       BSDF sockets: Base Color, Roughness, Metallic, Normal, Emission, Alpha).
+       Saves texture_map.json alongside the USD for re-use on retry.
+
+  7. collect_textures_for_objects()
+       Copies all textures already linked in material nodes to textures_dir.
+       Handles relative paths, Windows backslashes, case-insensitive search.
+       Calls img.reload() after copy to force pixel data into Blender memory
+       (required for headless Cycles thumbnail rendering).
+
+  8. USD export
+       Exports the asset as a .usd file with embedded material references.
+       Textures are referenced with relative paths (//textures/filename).
+
+  9. generate_thumbnail()
+       Renders a perspective-view JPEG thumbnail using Cycles (CPU, low samples).
+       Camera auto-positioned based on asset bounding box.
+       Uses PNG format setting explicitly to prevent JPEG bleed from VLM renders.
+
+  10. extract_geometry_data()
+        Computes bounding box dimensions (W × D × H in mm) and polygon count
+        from the mesh. Used for the spatial profile and metadata.
+
+  11. render_profile_views()
+        Renders three orthographic clay views (front, side, top) at 512×512.
+        Uses Cycles with 4 samples. Applies a temporary neutral clay material.
+        Returns views as base64 JPEG strings.
+
+  12. generate_asset_profile()
+        Sends 4 views (perspective + 3 orthographic) + hard geometry data to VLM.
+        Returns a structured JSON spatial profile with 10 sections:
+          identity   — category, subcategory, style tags, room types
+          geometry   — W/D/H (mm), polycount  [confidence always 1.0]
+          orientation — up/forward axis
+          placement  — surface type, snap mode, can_stack, is_freestanding
+          anchors    — attach points where other objects connect to this asset
+          relations  — typical furniture neighbours in a real room
+          style      — design style, material finish, colour family
+          clearance  — min clearance zones, human usability
+          material   — recolourable, has transparency, primary material
+          room       — appropriate rooms, indoor/outdoor
+          qa         — floor contact rules, intersection rules
+        Each section has a confidence (0.0–1.0) and needs_review flag.
+        Sections below 0.75 confidence are flagged for human review.
+
+  13. AI metadata tagging
+        Sends the thumbnail to the AI for asset name, category, and searchable
+        tags (10–15 tags per asset). Results written to metadata.json.
+
+  14. metadata.json output
+        Written to asset_dir/metadata.json:
+          id, name, category, tags, source_format, thumbnail path,
+          created_at, width_mm, depth_mm, height_mm, polycount
+
+  15. asset_profile.json output
+        Written to asset_dir/asset_profile.json — the full spatial profile
+        from step 12. Used by Promethean AI and other scene-building tools.
+
+  Debug log: written to output_dir/usd_converter_debug_log.txt per conversion.
+  Debug blend: if configured, saves the .blend file to debug_blend_path/.
+
+
+────────────────────────────────────────────────────────────────────────────────
+6. RUST BACKEND COMMANDS  (src-tauri/src/main.rs)
+────────────────────────────────────────────────────────────────────────────────
+
+  COMMAND               TYPE    DESCRIPTION
+  ────────────────────  ──────  ──────────────────────────────────────────────
+  get_settings          sync    Returns current Settings struct from memory
+  save_settings         sync    Persists Settings to SQLite, updates in-memory
+  get_assets            sync    Returns all assets from SQLite (newest first)
+  convert_asset         async   Spawns Blender process for single file or folder
+                                batch; streams stdout; parses QUEUE_MANIFEST;
+                                reads metadata.json and inserts into SQLite
+  delete_asset          sync    Removes asset record + moves files to trash
+  update_asset_tags     sync    Updates tags column in SQLite for an asset
+  open_folder           sync    Opens asset folder in system file manager
+  get_texture_files     sync    Returns list of texture file paths for an asset
+  get_asset_profile     sync    Returns parsed asset_profile.json content
+  save_asset_profile    sync    Writes updated asset_profile.json to disk
+
+  Batch folder processing:
+    When is_batch=true, Rust scans the selected folder (non-recursive),
+    filters by supported extensions (case-insensitive), and launches one
+    Blender process per file sequentially.
+
+
+────────────────────────────────────────────────────────────────────────────────
+7. DATABASE SCHEMA  (SQLite — library.db)
+────────────────────────────────────────────────────────────────────────────────
+
+  TABLE: assets
+    id            TEXT PRIMARY KEY   — UUID v4
+    name          TEXT               — asset display name
+    category      TEXT               — e.g. "Furniture", "Props"
+    tags          TEXT               — comma-separated tag list
+    path          TEXT               — absolute path to asset directory
+    thumbnail     TEXT               — absolute path to thumbnail JPEG
+    source_format TEXT               — original extension (fbx, obj, etc.)
+    animated      INTEGER            — 0/1 boolean
+    created_at    DATETIME           — ISO timestamp
+
+  TABLE: settings
+    id              INTEGER PRIMARY KEY  — always 1 (single row)
+    blender_path    TEXT                 — path to Blender executable
+    library_path    TEXT                 — root directory for converted assets
+    debug_blend_path TEXT               — optional: save .blend files here
+    gemini_api_key  TEXT                 — AI API key
+    ai_provider     TEXT                 — "Google Gemini" | "OpenAI" |
+                                           "Anthropic" | "Local / Custom"
+    ai_model        TEXT                 — model identifier string
+    ai_url          TEXT                 — endpoint for local providers
+    freecad_path    TEXT                 — path to FreeCAD executable
+
+
+────────────────────────────────────────────────────────────────────────────────
+8. AI PROVIDERS & INTEGRATION
+────────────────────────────────────────────────────────────────────────────────
+
+  call_ai_universal() in convert.py handles all providers uniformly.
+  Accepts: provider, api_key, model, url, prompt_text, b64_images[]
+  Returns: (parsed_dict_or_list, raw_text_string)
+
+  PROVIDER                    ENDPOINT / NOTES
+  ──────────────────────────  ──────────────────────────────────────────────
+  Google Gemini               generativelanguage.googleapis.com — multimodal
+  OpenAI                      api.openai.com/v1/chat/completions — vision
+  Anthropic                   api.anthropic.com/v1/messages — vision
+  Local / Custom              User-specified URL (Ollama, LM Studio, etc.)
+                              OpenAI-compatible /chat/completions endpoint
+
+  AI is used for:
+    - Material name → texture filename semantic mapping (text only, Stage 1)
+    - VLM colour-coded mask → texture mapping (vision, Stage 2 path A)
+    - VLM texture visual classification in batches (vision, Stage 2 path B)
+    - Scene segmentation (grouping mesh objects in .blend files)
+    - Asset tagging (name, category, 10–15 searchable tags)
+    - Spatial profile generation (4 rendered views → placement JSON)
+
+  All AI calls are optional — the pipeline degrades gracefully:
+    - No API key / no provider → texture mapping skipped, basic tags used
+    - Vision model unavailable → VLM stages skipped, text mapping only
+
+
+────────────────────────────────────────────────────────────────────────────────
+9. SETTINGS / CONFIGURATION
+────────────────────────────────────────────────────────────────────────────────
+
+  All settings are persisted in SQLite and editable via the Settings screen.
+
+  SETTING               REQUIRED   DESCRIPTION
+  ────────────────────  ─────────  ──────────────────────────────────────────
+  Blender Executable    YES        Full path to Blender binary
+                                   e.g. /usr/bin/blender
+  Library Path          YES        Root output directory for converted assets
+                                   e.g. /home/user/3D_Library
+  FreeCAD Executable    NO         Path to FreeCAD binary or AppImage.
+                                   Required only for .step/.stp/.igs/.iges.
+                                   Auto-detected from PATH if blank.
+                                   e.g. /home/user/FreeCAD_1.1.1.AppImage
+  Debug Blend Path      NO         Directory where .blend files are saved
+                                   for post-conversion inspection
+  AI Provider           NO         Google Gemini / OpenAI / Anthropic /
+                                   Local / Custom (Ollama/LM Studio)
+  AI Model              NO         Model identifier string
+                                   Defaults: gemini-2.5-flash / gpt-4o-mini /
+                                   claude-3-5-sonnet / llava
+  API Key               NO         Required for cloud providers; optional for
+                                   local networks
+  Endpoint URL          NO         Full URL for local/custom providers
+                                   e.g. http://192.168.1.50:11434/v1/...
+
+
+────────────────────────────────────────────────────────────────────────────────
+10. LIBRARY FEATURES  (Library screen)
+────────────────────────────────────────────────────────────────────────────────
+
+  - Browse all converted assets with thumbnail grid view
+  - Real-time search by name
+  - Filter by category (Furniture, Props, Nature, Vehicles, etc.)
+  - Filter by tags (multi-select)
+  - Asset cards show: thumbnail, name, category, source format, tags, size
+  - Click asset to view details: dimensions, polycount, texture list
+  - Edit tags per asset (saved to SQLite)
+  - Delete asset (moves files to system trash, removes DB record)
+  - Open asset folder in system file manager
+  - View/edit asset spatial profile (asset_profile.json)
+  - Retry failed conversions
+  - Retry all failed conversions in one click
+  - Clear completed / failed items from queue
+  - Real-time progress timer for in-progress conversions
+  - Processing queue shows live status (Queued / Processing / Completed / Failed)
+
+
+────────────────────────────────────────────────────────────────────────────────
+11. IMPORT MODES
+────────────────────────────────────────────────────────────────────────────────
+
+  Single File Import:
+    File picker dialog opens. Filter options:
+      "3D Models"  — all supported formats (case-insensitive on Linux)
+      "CAD Files"  — STEP/STP/IGS/IGES only (upper + lowercase variants)
+      "All Files"  — no filter (useful for uppercase extensions from Windows)
+    Selected file is processed as one asset.
+
+  Folder Import (Batch):
+    Folder picker dialog opens. The top-level directory is scanned
+    (non-recursive) for all supported file extensions.
+    Each file is processed as a separate asset sequentially.
+    .blend files are internally segmented into multiple assets if they contain
+    multiple mesh objects/collections.
+
+
+────────────────────────────────────────────────────────────────────────────────
+12. OUTPUT STRUCTURE PER ASSET
+────────────────────────────────────────────────────────────────────────────────
+
+  <library_path>/
+  └── <Category>/
+      └── <AssetName>/
+          ├── <AssetName>.usd         — converted USD file
+          ├── thumbnail.png           — perspective render (Cycles, PNG)
+          ├── metadata.json           — id, name, category, tags, dimensions
+          ├── asset_profile.json      — full spatial placement profile (10 sections)
+          ├── texture_map.json        — AI material→texture mapping result
+          ├── textures/               — all textures referenced by the USD
+          │   ├── basecolor.png
+          │   ├── roughness.png
+          │   └── ...
+          └── usd_converter_debug_log.txt  — full conversion log
+
+
+────────────────────────────────────────────────────────────────────────────────
+13. SPATIAL PROFILE  (asset_profile.json)
+────────────────────────────────────────────────────────────────────────────────
+
+  Designed for integration with Promethean AI and similar scene-building tools.
+  Generated by VLM analysis of 4 rendered views + hard mesh geometry.
+
+  SECTION       KEY FIELDS
+  ────────────  ──────────────────────────────────────────────────────────────
+  identity      category, subcategory, style_tags[], room_types[]
+  geometry      width_mm, depth_mm, height_mm, polycount  [from mesh, exact]
+  orientation   up_axis (+Z), forward_axis (+Y/-Y/+X/-X), notes
+  placement     surface (floor/wall/shelf/etc), snap_mode, can_stack,
+                is_freestanding
+  anchors[]     named attach/contact points on the asset
+  relations[]   typical furniture neighbours (relation + target + strength)
+  style         primary_style, material_finish, color_family
+  clearance     min clearance zones (front/sides mm), is_human_usable
+  material      can_be_recoloured, primary_material, has_transparency
+  room          appropriate_rooms[], inappropriate_rooms[], indoor_outdoor
+  qa            must_touch_floor, must_face_target, must_not_intersect,
+                min_floor_clearance_mm
+
+  Each section carries: confidence (0.0–1.0), needs_review (bool).
+  Overall confidence and a list of sections needing review are top-level fields.
+  The geometry section is always confidence 1.0 (computed from mesh data).
+
+  Profile is editable via the Library UI (review and correct low-confidence
+  sections before using in a scene-building pipeline).
+
+
+────────────────────────────────────────────────────────────────────────────────
+14. HEADLESS / LINUX NOTES
+────────────────────────────────────────────────────────────────────────────────
+
+  The entire Blender pipeline runs headless (blender --background).
+  Key constraints and their workarounds:
+
+  - bpy.context.window is None headless → guarded before any window-dependent op
+  - EEVEE requires OpenGL/display → all renders use Cycles (CPU, samples=1–4)
+  - FreeCAD GUI binary needs --console flag on Linux to run a script headlessly;
+    FreeCADCmd variant does not need it (auto-detected)
+  - Images loaded by OBJ importer have has_data=False until img.reload() is called
+  - After VLM renders set format to JPEG, thumbnail render explicitly resets to PNG
+  - File dialog extension filters are case-sensitive on some Linux desktops
+    (KDE/Wayland portal) → both lowercase and uppercase variants in all filters
+  - FreeCAD installed as AppImage: set the full AppImage path in Settings
+
+
+────────────────────────────────────────────────────────────────────────────────
+15. RUNNING THE APP
+────────────────────────────────────────────────────────────────────────────────
+
+  Prerequisites:
+    - Node.js 18+
+    - Rust + Cargo
+    - Blender 3.6+ (path set in Settings after first launch)
+    - FreeCAD (optional, for CAD formats — path set in Settings)
+
+  Development:
+    npm install
+    npm run tauri dev
+
+  Production build:
+    npm run tauri build
+
+  First-run setup:
+    1. Launch the app
+    2. Go to Settings
+    3. Set Blender Executable Path (required)
+    4. Set Library Path — root folder for converted assets (required)
+    5. Set FreeCAD Executable Path (required for .step/.igs/.iges only)
+    6. Optionally configure AI Provider + API Key for texture mapping,
+       asset tagging, and spatial profile generation
+    7. Save Changes
+
+
+================================================================================
+  END OF DOCUMENTATION
+================================================================================

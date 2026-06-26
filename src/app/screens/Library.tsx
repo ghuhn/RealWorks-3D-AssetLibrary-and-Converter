@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { LayoutGrid, List as ListIcon, Info, FolderOpen, Calendar, Tag as TagIcon, FileType2, Box, Trash2, Search, ChevronRight, FilterX, Plus, X, HardDrive, ArrowDownUp } from "lucide-react";
+import { LayoutGrid, List as ListIcon, Info, FolderOpen, Calendar, Tag as TagIcon, FileType2, Box, Trash2, Search, ChevronRight, FilterX, Plus, X, HardDrive, ArrowDownUp, ShieldAlert, CheckCircle2, Brain, Wrench, AlertTriangle } from "lucide-react";
 import { useAppContext, type Asset } from "../context/AppContext";
 import { getAllNamesForCategory } from "../components/Layout";
 import { motion, AnimatePresence } from "motion/react";
@@ -10,6 +10,7 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
 import { readDir } from "@tauri-apps/plugin-fs";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 function formatBytes(bytes: number, decimals = 1) {
   if (!+bytes) return '0 Bytes';
@@ -82,7 +83,7 @@ const getVisibleTagsCount = (tags: string[], maxWidth: number = 155) => {
 
 export function Library() {
   const [sortBy, setSortBy] = useState<"recent" | "modified" | "all">("all");
-  const { assets, searchQuery, setSearchQuery, selectedCategory, setSelectedCategory, selectedTags, setSelectedTags, deleteAsset, availableTags, addAvailableTag, updateAssetTags } = useAppContext();
+  const { assets, searchQuery, setSearchQuery, selectedCategory, setSelectedCategory, selectedTags, setSelectedTags, deleteAsset, availableTags, addAvailableTag, updateAssetTags, importAssetByPath } = useAppContext();
   const libraryAssets = assets.filter(a => {
     if (a.status !== "Library") return false;
 
@@ -127,9 +128,11 @@ export function Library() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [selectedForDelete, setSelectedForDelete] = useState<string[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<{ ids: string[]; label: string } | null>(null);
   const [openTagManagerId, setOpenTagManagerId] = useState<string | null>(null);
   const [newTagInput, setNewTagInput] = useState("");
   const [textureFiles, setTextureFiles] = useState<string[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   
   const [isSortOpen, setIsSortOpen] = useState(false);
@@ -183,6 +186,46 @@ export function Library() {
   }, [assets, selectedAsset]);
 
   const middleWorkspaceRef = useRef<HTMLDivElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+
+  const SUPPORTED_EXTS = new Set(['fbx','obj','glb','gltf','blend','dae','stl','ply','usd','usda','usdz','max','dxf','igs','iges','stp','step','3ds']);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    getCurrentWindow().onDragDropEvent((event) => {
+      const type = event.payload.type;
+      if (type === 'enter' || type === 'over') {
+        // Only activate if the cursor is over the drop zone element
+        if (dropZoneRef.current) {
+          const rect = dropZoneRef.current.getBoundingClientRect();
+          const { x, y } = event.payload.position;
+          const inside = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+          setIsDragOver(inside);
+        }
+      } else if (type === 'drop') {
+        setIsDragOver(false);
+        const paths: string[] = (event.payload as any).paths ?? [];
+        if (dropZoneRef.current) {
+          const rect = dropZoneRef.current.getBoundingClientRect();
+          const { x, y } = event.payload.position;
+          const inside = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+          if (!inside) return;
+        }
+        paths.forEach(p => {
+          const ext = p.split('.').pop()?.toLowerCase() ?? '';
+          if (SUPPORTED_EXTS.has(ext)) {
+            importAssetByPath(p);
+          } else {
+            const name = p.split('/').pop() ?? p;
+            toast.error("Unsupported file", { description: `"${name}" is not a supported 3D asset format.` });
+          }
+        });
+      } else if (type === 'leave') {
+        setIsDragOver(false);
+      }
+    }).then(fn => { unlisten = fn; });
+    return () => { unlisten?.(); };
+  }, [importAssetByPath]);
 
   useEffect(() => {
     if (!middleWorkspaceRef.current) return;
@@ -299,7 +342,19 @@ export function Library() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar outline-none" tabIndex={0}>
+        <div
+          ref={dropZoneRef}
+          className="flex-1 overflow-y-auto p-4 scrollbar-hide outline-none relative"
+          tabIndex={0}
+        >
+          {isDragOver && (
+            <div className="absolute inset-0 z-20 pointer-events-none rounded-lg border-2 border-dashed border-blue-500 bg-blue-500/5 flex items-center justify-center">
+              <div className="flex flex-col items-center gap-2 text-blue-400">
+                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span className="text-sm font-medium">Drop to import</span>
+              </div>
+            </div>
+          )}
           {viewMode === "grid" ? (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4">
               {libraryAssets.map(asset => (
@@ -311,10 +366,7 @@ export function Library() {
                   onDoubleClick={() => toast.info("Opening Folder", { description: "Opening " + asset.name + " folder..." })}
                   onDelete={(e) => {
                     e.stopPropagation();
-                    if (window.confirm(`Are you sure you want to move "${asset.name}" to the Recycle Bin?`)) {
-                      deleteAsset(asset.id);
-                      if (selectedAsset?.id === asset.id) setSelectedAsset(null);
-                    }
+                    setDeleteTarget({ ids: [asset.id], label: asset.name });
                   }}
                 />
               ))}
@@ -349,11 +401,7 @@ export function Library() {
                   {selectedForDelete.length > 0 && (
                     <button
                       onClick={() => {
-                        if (window.confirm(`Are you sure you want to move ${selectedForDelete.length} items to the Recycle Bin?`)) {
-                          selectedForDelete.forEach(id => deleteAsset(id));
-                          setSelectedForDelete([]);
-                          if (selectedAsset && selectedForDelete.includes(selectedAsset.id)) setSelectedAsset(null);
-                        }
+                        setDeleteTarget({ ids: [...selectedForDelete], label: `${selectedForDelete.length} assets` });
                       }}
                       className="text-red-500 hover:text-red-400 flex items-center gap-1 transition-colors"
                       title="Delete Selected"
@@ -406,11 +454,7 @@ export function Library() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (window.confirm(`Are you sure you want to move "${asset.name}" to the Recycle Bin?`)) {
-                          deleteAsset(asset.id);
-                          if (selectedAsset?.id === asset.id) setSelectedAsset(null);
-                          setSelectedForDelete(prev => prev.filter(id => id !== asset.id));
-                        }
+                        setDeleteTarget({ ids: [asset.id], label: asset.name });
                       }}
                       className="text-neutral-500 hover:text-red-500 transition-colors"
                       title="Delete Asset"
@@ -443,10 +487,7 @@ export function Library() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
-                      if (window.confirm(`Are you sure you want to move "${selectedAsset.name}" to the Recycle Bin?`)) {
-                        deleteAsset(selectedAsset.id);
-                        setSelectedAsset(null);
-                      }
+                      setDeleteTarget({ ids: [selectedAsset.id], label: selectedAsset.name });
                     }}
                     className="text-red-500 transition-colors"
                     title="Delete Asset"
@@ -463,7 +504,7 @@ export function Library() {
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-6 outline-none" tabIndex={0}>
+              <div className="flex-1 overflow-y-auto p-4 scrollbar-hide space-y-6 outline-none" tabIndex={0}>
                 <div className="aspect-square bg-[#111] rounded-lg border border-[#333] overflow-hidden relative group">
                   <ThumbnailImage src={selectedAsset.thumbnail} alt={selectedAsset.name} className="w-full h-full object-cover" />
                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
@@ -570,14 +611,30 @@ export function Library() {
                   </h3>
                   <AssetTagsManager
                     asset={selectedAsset}
-                    managerId={`details-${selectedAsset.id}`}
-                    openTagManagerId={openTagManagerId}
-                    setOpenTagManagerId={setOpenTagManagerId}
-                    newTagInput={newTagInput}
-                    setNewTagInput={setNewTagInput}
-                    popoverRef={popoverRef}
+                    readOnly={true}
                     maxWidth={250}
                   />
+                </div>
+
+                <div>
+                  <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <Brain className="w-3 h-3" /> Spatial Profile
+                  </h3>
+                  <AssetProfile asset={selectedAsset} />
+                </div>
+
+                <div>
+                  <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <Wrench className="w-3 h-3" /> Material Sanitizations
+                  </h3>
+                  <MaterialSanitizations asset={selectedAsset} />
+                </div>
+
+                <div>
+                  <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <Wrench className="w-3 h-3" /> Material Anomalies
+                  </h3>
+                  <MaterialAnomalies asset={selectedAsset} />
                 </div>
 
                 <div>
@@ -593,6 +650,59 @@ export function Library() {
                 </div>
               </div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete confirmation dialog */}
+      <AnimatePresence>
+        {deleteTarget && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+            onClick={() => setDeleteTarget(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ type: "tween", duration: 0.15 }}
+              className="bg-[#1e1e1e] border border-[#333] rounded-lg shadow-2xl w-80 p-5 flex flex-col gap-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-4 h-4 text-red-500" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-white">Delete asset{deleteTarget.ids.length > 1 ? "s" : ""}?</p>
+                  <p className="text-xs text-neutral-400 mt-1">
+                    <span className="text-neutral-200">"{deleteTarget.label}"</span> will be permanently removed.
+                  </p>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setDeleteTarget(null)}
+                  className="px-3 py-1.5 text-xs rounded border border-[#444] text-neutral-300 hover:bg-[#2a2a2a] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    deleteTarget.ids.forEach(id => deleteAsset(id));
+                    if (selectedAsset && deleteTarget.ids.includes(selectedAsset.id)) setSelectedAsset(null);
+                    setSelectedForDelete(prev => prev.filter(id => !deleteTarget.ids.includes(id)));
+                    setDeleteTarget(null);
+                  }}
+                  className="px-3 py-1.5 text-xs rounded bg-red-600 hover:bg-red-500 text-white transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -636,6 +746,12 @@ function AssetCard({ asset, isSelected, onClick, onDoubleClick, onDelete }: { as
           <Trash2 className="w-4 h-4" />
         </button>
 
+        {asset.needsReview && (
+          <div className="absolute top-2 left-2 flex items-center gap-1 bg-amber-500/90 text-black text-[10px] font-semibold px-1.5 py-0.5 rounded z-10">
+            <ShieldAlert className="w-2.5 h-2.5" /> Review
+          </div>
+        )}
+
         {/* Lightweight hover preview overlay */}
         <AnimatePresence>
           {isHovered && (
@@ -657,6 +773,508 @@ function AssetCard({ asset, isSelected, onClick, onDoubleClick, onDelete }: { as
         </AnimatePresence>
       </div>
     </motion.div>
+  );
+}
+
+const PROFILE_SECTIONS = ["identity","geometry","orientation","placement","style","clearance","material","room","qa"] as const;
+type ProfileSection = typeof PROFILE_SECTIONS[number];
+
+const SECTION_LABELS: Record<ProfileSection, string> = {
+  identity:    "Identity",
+  geometry:    "Geometry",
+  orientation: "Orientation",
+  placement:   "Placement",
+  style:       "Style",
+  clearance:   "Clearance",
+  material:    "Material",
+  room:        "Room",
+  qa:          "QA Rules",
+};
+
+function ProfileSectionSummary({ section, data }: { section: ProfileSection; data: any }) {
+  switch (section) {
+    case "identity":
+      return <span>{data.category}{data.subcategory ? ` › ${data.subcategory}` : ""}</span>;
+    case "geometry":
+      return <span>{data.width_mm}×{data.depth_mm}×{data.height_mm} mm · {data.polycount?.toLocaleString()} polys</span>;
+    case "orientation":
+      return <span>Up {data.up_axis} · Front {data.forward_axis}</span>;
+    case "placement":
+      return <span>{data.surface} · {String(data.snap_mode ?? "").replace(/_/g, " ")}</span>;
+    case "style":
+      return <span>{data.primary_style} · {data.material_finish}</span>;
+    case "clearance":
+      return <span>{data.is_human_usable ? "Human usable" : "Decorative"}{data.min_clearance_front_mm ? ` · ${data.min_clearance_front_mm}mm front` : ""}</span>;
+    case "material":
+      return <span>{data.primary_material}{data.can_be_recoloured ? " · recolourable" : ""}</span>;
+    case "room":
+      return <span>{(data.appropriate_rooms ?? []).slice(0, 3).join(", ")}</span>;
+    case "qa": {
+      const flags: string[] = [];
+      if (data.must_touch_floor)  flags.push("touches floor");
+      if (data.must_face_target)  flags.push("faces target");
+      if (data.must_not_intersect) flags.push("no intersect");
+      return <span>{flags.length ? flags.join(" · ") : "Standard rules"}</span>;
+    }
+    default: return null;
+  }
+}
+
+function AssetProfile({ asset }: { asset: Asset }) {
+  const [profile, setProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [editingSection, setEditingSection] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    setLoading(true);
+    setProfile(null);
+    setEditingSection(null);
+    invoke<any>("get_asset_profile", { category: asset.category, name: asset.name })
+      .then(p => setProfile(p))
+      .catch(() => setProfile(null))
+      .finally(() => setLoading(false));
+  }, [asset.id]);
+
+  const SKIP_FIELDS = new Set(["confidence", "needs_review"]);
+
+  const saveSection = async (section: string, data: Record<string, any>, markReviewed: boolean) => {
+    if (!profile) return;
+    const updatedSection = { ...profile[section], ...data, ...(markReviewed ? { needs_review: false } : {}) };
+    const updated = { ...profile, [section]: updatedSection };
+    const remaining = PROFILE_SECTIONS.filter(s => s !== "geometry" && updated[s]?.needs_review);
+    updated.needs_review  = remaining.length > 0;
+    updated.review_fields = remaining;
+    setProfile(updated);
+    setEditingSection(null);
+    try {
+      await invoke("save_asset_profile", { category: asset.category, name: asset.name, profile: updated });
+      toast.success(`${SECTION_LABELS[section as ProfileSection] ?? section} ${markReviewed ? "confirmed" : "saved"}`);
+    } catch {
+      toast.error("Failed to save profile");
+    }
+  };
+
+  const startEdit = (section: string, sec: any) => {
+    const draft: Record<string, any> = {};
+    for (const [k, v] of Object.entries(sec)) {
+      if (!SKIP_FIELDS.has(k)) draft[k] = Array.isArray(v) ? v.join(", ") : String(v ?? "");
+    }
+    setEditDraft(draft);
+    setEditingSection(section);
+  };
+
+  const commitEdit = (section: string, markReviewed: boolean) => {
+    const parsed: Record<string, any> = {};
+    const original = profile[section];
+    for (const [k, v] of Object.entries(editDraft)) {
+      const orig = original[k];
+      if (typeof orig === "boolean") parsed[k] = v === "true";
+      else if (typeof orig === "number") parsed[k] = Number(v);
+      else if (Array.isArray(orig)) parsed[k] = String(v).split(",").map((s: string) => s.trim()).filter(Boolean);
+      else parsed[k] = v;
+    }
+    saveSection(section, parsed, markReviewed);
+  };
+
+  if (loading) return <p className="text-xs text-neutral-600 italic">Loading profile…</p>;
+
+  if (!profile) return (
+    <p className="text-xs text-neutral-600 italic">
+      No spatial profile yet. Profiles are generated automatically during conversion when an AI provider is configured.
+    </p>
+  );
+
+  const overallPct = Math.round((profile.overall_confidence ?? 0) * 100);
+  const reviewCount = (profile.review_fields ?? []).length;
+
+  return (
+    <div className="space-y-2">
+      {/* Overall confidence bar */}
+      <div className="flex items-center gap-2 mb-3">
+        <div className="flex-1 bg-[#111] rounded-full h-1.5 overflow-hidden">
+          <div
+            className={cn(
+              "h-1.5 rounded-full transition-all",
+              overallPct >= 80 ? "bg-green-500" : overallPct >= 60 ? "bg-amber-400" : "bg-red-500"
+            )}
+            style={{ width: `${overallPct}%` }}
+          />
+        </div>
+        <span className="text-xs text-neutral-400 shrink-0">{overallPct}%</span>
+        {profile.needs_review && (
+          <span className="text-[10px] bg-amber-500/15 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded shrink-0">
+            {reviewCount} to review
+          </span>
+        )}
+      </div>
+
+      {/* Section rows */}
+      {PROFILE_SECTIONS.map(section => {
+        const sec = profile[section];
+        if (!sec || typeof sec !== "object") return null;
+        const conf      = typeof sec.confidence === "number" ? sec.confidence : 1;
+        const flagged   = sec.needs_review === true;
+        const confPct   = Math.round(conf * 100);
+        const isGeometry = section === "geometry";
+
+        const isEditing = editingSection === section;
+
+        return (
+          <div
+            key={section}
+            className={cn(
+              "rounded p-2.5 text-xs border transition-colors",
+              flagged ? "border-amber-500/40 bg-amber-500/5" : "border-[#2a2a2a] bg-[#111]"
+            )}
+          >
+            {/* Header row */}
+            <div className="flex items-center justify-between mb-1 gap-2">
+              <span className={cn("font-medium", flagged ? "text-amber-400" : "text-neutral-300")}>
+                {SECTION_LABELS[section]}
+              </span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {isGeometry ? (
+                  <CheckCircle2 className="w-3 h-3 text-green-500" />
+                ) : (
+                  <span className="text-neutral-600">{confPct}%</span>
+                )}
+                {!isGeometry && !isEditing && (
+                  <button
+                    onClick={() => startEdit(section, sec)}
+                    className="text-[10px] text-neutral-400 hover:text-white border border-[#444] hover:border-[#666] px-1.5 py-0.5 rounded transition-colors"
+                  >
+                    Edit
+                  </button>
+                )}
+                {flagged && !isEditing && (
+                  <button
+                    onClick={() => saveSection(section, {}, true)}
+                    className="text-[10px] text-amber-400 hover:text-white border border-amber-500/40 hover:border-amber-400 px-1.5 py-0.5 rounded transition-colors"
+                  >
+                    Confirm
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Inline editor */}
+            {isEditing ? (
+              <div className="mt-2 space-y-1.5">
+                {Object.entries(editDraft).map(([k, v]) => (
+                  <div key={k} className="flex items-start gap-2">
+                    <span className="text-neutral-600 w-28 shrink-0 pt-0.5 capitalize">{k.replace(/_/g, " ")}</span>
+                    <input
+                      type="text"
+                      value={v as string}
+                      onChange={e => setEditDraft(prev => ({ ...prev, [k]: e.target.value }))}
+                      className="flex-1 bg-[#1a1a1a] border border-[#444] focus:border-blue-500 rounded px-1.5 py-0.5 text-[10px] text-neutral-200 outline-none transition-colors min-w-0"
+                    />
+                  </div>
+                ))}
+                <div className="flex gap-1.5 pt-1">
+                  <button
+                    onClick={() => commitEdit(section, false)}
+                    className="text-[10px] bg-[#2a2a2a] hover:bg-[#333] border border-[#444] text-neutral-200 px-2 py-0.5 rounded transition-colors"
+                  >
+                    Save
+                  </button>
+                  {flagged && (
+                    <button
+                      onClick={() => commitEdit(section, true)}
+                      className="text-[10px] bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-400 px-2 py-0.5 rounded transition-colors"
+                    >
+                      Save & Confirm
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setEditingSection(null)}
+                    className="text-[10px] text-neutral-500 hover:text-neutral-300 px-1.5 py-0.5 rounded transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="text-neutral-500 truncate">
+                  <ProfileSectionSummary section={section} data={sec} />
+                </div>
+
+                {/* Anchors / Relations sub-list */}
+                {section === "placement" && Array.isArray(profile.anchors) && profile.anchors.length > 0 && (
+                  <div className="mt-1.5 pt-1.5 border-t border-[#222] space-y-0.5">
+                    <span className="text-neutral-600 text-[10px] uppercase tracking-wide">Anchors</span>
+                    {profile.anchors.map((a: any, i: number) => (
+                      <div key={i} className="text-neutral-600 truncate">{a.name} — {a.description}</div>
+                    ))}
+                  </div>
+                )}
+                {section === "room" && Array.isArray(profile.relations) && profile.relations.length > 0 && (
+                  <div className="mt-1.5 pt-1.5 border-t border-[#222] space-y-0.5">
+                    <span className="text-neutral-600 text-[10px] uppercase tracking-wide">Relations</span>
+                    {profile.relations.map((r: any, i: number) => (
+                      <div key={i} className="text-neutral-600 truncate">{r.relation} {r.target} ({r.strength})</div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+interface Anomaly {
+  material: string;
+  property: string;
+  current_value: number | number[];
+  issue: string;
+  suggested_fix: number | number[];
+}
+
+function MaterialAnomalies({ asset }: { asset: Asset }) {
+  const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [fixValues, setFixValues] = useState<Record<string, string>>({});
+  const [applying, setApplying]   = useState<Record<string, boolean>>({});
+
+  const load = () => {
+    setLoading(true);
+    invoke<Anomaly[]>("get_material_anomalies", { category: asset.category, name: asset.name })
+      .then(a => {
+        setAnomalies(a);
+        const defaults: Record<string, string> = {};
+        a.forEach(an => {
+          const k = `${an.material}::${an.property}`;
+          const fix = an.suggested_fix;
+          defaults[k] = Array.isArray(fix)
+            ? fix.map((v: number) => v.toFixed(3)).join(", ")
+            : String(fix);
+        });
+        setFixValues(defaults);
+      })
+      .catch(() => setAnomalies([]))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, [asset.id]);
+
+  const applyFix = async (anomaly: Anomaly) => {
+    const k = `${anomaly.material}::${anomaly.property}`;
+    const raw = fixValues[k] ?? "";
+    let value: number | number[];
+    const parts = raw.split(",").map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
+    if (parts.length === 3) value = parts;
+    else if (parts.length === 1) value = parts[0];
+    else { toast.error("Invalid value"); return; }
+
+    setApplying(prev => ({ ...prev, [k]: true }));
+    try {
+      await invoke("apply_material_fixes", {
+        category: asset.category,
+        name: asset.name,
+        patches: [{ material: anomaly.material, property: anomaly.property, value }],
+      });
+      toast.success("Fix applied", { description: `${anomaly.material} · ${anomaly.property} → ${raw}` });
+      load();
+    } catch (e: any) {
+      toast.error("Fix failed", { description: String(e) });
+    } finally {
+      setApplying(prev => ({ ...prev, [k]: false }));
+    }
+  };
+
+  const applyAll = async () => {
+    const patches = anomalies.map(an => {
+      const k = `${an.material}::${an.property}`;
+      const raw = fixValues[k] ?? "";
+      const parts = raw.split(",").map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
+      const value: number | number[] = parts.length === 3 ? parts : parts[0] ?? an.suggested_fix;
+      return { material: an.material, property: an.property, value };
+    });
+    try {
+      await invoke("apply_material_fixes", { category: asset.category, name: asset.name, patches });
+      toast.success("All fixes applied");
+      load();
+    } catch (e: any) {
+      toast.error("Apply all failed", { description: String(e) });
+    }
+  };
+
+  if (loading) return <p className="text-xs text-neutral-600 italic">Scanning materials…</p>;
+
+  if (anomalies.length === 0) return (
+    <p className="text-xs text-neutral-600 italic flex items-center gap-1.5">
+      <CheckCircle2 className="w-3 h-3 text-green-500" /> No material anomalies detected.
+    </p>
+  );
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-amber-400 flex items-center gap-1">
+          <AlertTriangle className="w-3 h-3" /> {anomalies.length} anomal{anomalies.length === 1 ? "y" : "ies"} found
+        </span>
+        <button
+          onClick={applyAll}
+          className="text-[10px] px-2 py-0.5 bg-blue-600/20 border border-blue-500/40 text-blue-400 hover:bg-blue-600/30 rounded transition-colors"
+        >
+          Fix all
+        </button>
+      </div>
+
+      {anomalies.map(an => {
+        const k = `${an.material}::${an.property}`;
+        const busy = applying[k] ?? false;
+        const curStr = Array.isArray(an.current_value)
+          ? an.current_value.map((v: number) => v.toFixed(3)).join(", ")
+          : String(an.current_value);
+
+        return (
+          <div key={k} className="rounded border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-amber-400 font-medium truncate">{an.property}</span>
+              <span className="text-neutral-600 text-[10px] shrink-0 truncate max-w-[120px]" title={an.material}>{an.material}</span>
+            </div>
+
+            <p className="text-neutral-400 leading-snug">{an.issue}</p>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-neutral-600 text-[10px] shrink-0">was {curStr} → </span>
+              <input
+                type="text"
+                value={fixValues[k] ?? ""}
+                onChange={e => setFixValues(prev => ({ ...prev, [k]: e.target.value }))}
+                className="flex-1 min-w-0 bg-[#111] border border-[#333] rounded px-1.5 py-0.5 text-[10px] text-white focus:outline-none focus:border-blue-500"
+                placeholder="new value"
+              />
+              <button
+                onClick={() => applyFix(an)}
+                disabled={busy}
+                className="shrink-0 px-2 py-0.5 text-[10px] bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded transition-colors"
+              >
+                {busy ? "…" : "Apply"}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+interface Sanitization {
+  material: string;
+  property: string;
+  original_value: number | number[];
+  sanitized_value: number | number[];
+  reason: string;
+}
+
+function MaterialSanitizations({ asset }: { asset: Asset }) {
+  const [sanitizations, setSanitizations] = useState<Sanitization[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
+
+  const load = () => {
+    setLoading(true);
+    invoke<Sanitization[]>("get_material_sanitizations", { category: asset.category, name: asset.name })
+      .then(s => setSanitizations(s))
+      .catch(() => setSanitizations([]))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, [asset.id]);
+
+  const fmt = (v: number | number[]) =>
+    Array.isArray(v) ? v.map(x => x.toFixed(3)).join(", ") : String(v);
+
+  const revert = async (s: Sanitization) => {
+    const k = `${s.material}::${s.property}`;
+    setBusy(prev => ({ ...prev, [k]: true }));
+    try {
+      await invoke("revert_material_sanitization", {
+        category: asset.category,
+        name: asset.name,
+        patches: [{ material: s.material, property: s.property, value: s.original_value }],
+      });
+      toast.success("Reverted", { description: `${s.material} · ${s.property} → ${fmt(s.original_value)}` });
+      load();
+    } catch (e: any) {
+      toast.error("Revert failed", { description: String(e) });
+    } finally {
+      setBusy(prev => ({ ...prev, [k]: false }));
+    }
+  };
+
+  const accept = async (keys: { material: string; property: string }[]) => {
+    try {
+      await invoke("accept_material_sanitizations", { category: asset.category, name: asset.name, keys });
+      toast.success(keys.length === 0 ? "All corrections accepted" : "Correction accepted");
+      load();
+    } catch (e: any) {
+      toast.error("Accept failed", { description: String(e) });
+    }
+  };
+
+  if (loading) return <p className="text-xs text-neutral-600 italic">Checking sanitizations…</p>;
+
+  if (sanitizations.length === 0) return (
+    <p className="text-xs text-neutral-600 italic flex items-center gap-1.5">
+      <CheckCircle2 className="w-3 h-3 text-green-500" /> No auto-corrections applied.
+    </p>
+  );
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-blue-400 flex items-center gap-1">
+          <Info className="w-3 h-3" /> {sanitizations.length} value{sanitizations.length > 1 ? 's' : ''} auto-corrected
+        </span>
+        <button
+          onClick={() => accept([])}
+          className="text-[10px] px-2 py-0.5 bg-[#2a2a2a] border border-[#444] text-neutral-400 hover:text-white rounded transition-colors"
+        >
+          Accept all
+        </button>
+      </div>
+
+      {sanitizations.map(s => {
+        const k = `${s.material}::${s.property}`;
+        return (
+          <div key={k} className="rounded border border-blue-500/30 bg-blue-500/5 p-2.5 text-xs space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-blue-400 font-medium truncate">{s.property}</span>
+              <span className="text-neutral-600 text-[10px] shrink-0 truncate max-w-[120px]" title={s.material}>{s.material}</span>
+            </div>
+            <p className="text-neutral-400 leading-snug">{s.reason}</p>
+            <div className="flex items-center gap-1.5 text-[10px] text-neutral-500">
+              <span>{fmt(s.original_value)}</span>
+              <span className="text-neutral-600">→</span>
+              <span className="text-neutral-300">{fmt(s.sanitized_value)}</span>
+            </div>
+            <div className="flex gap-1.5 pt-0.5">
+              <button
+                onClick={() => revert(s)}
+                disabled={busy[k]}
+                className="px-2 py-0.5 text-[10px] bg-[#2a2a2a] hover:bg-[#333] border border-[#444] text-neutral-300 disabled:opacity-50 rounded transition-colors"
+              >
+                {busy[k] ? '…' : 'Revert'}
+              </button>
+              <button
+                onClick={() => accept([{ material: s.material, property: s.property }])}
+                className="px-2 py-0.5 text-[10px] bg-blue-600/20 border border-blue-500/40 text-blue-400 hover:bg-blue-600/30 rounded transition-colors"
+              >
+                Accept
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -783,7 +1401,7 @@ function AssetTagsManager({
               <X className="w-3 h-3" />
             </button>
           </div>
-          <div className="max-h-32 overflow-y-auto custom-scrollbar space-y-1">
+          <div className="max-h-32 overflow-y-auto scrollbar-hide space-y-1">
             {availableTags.map(tag => {
               const hasTag = asset.tags.includes(tag);
               return (
